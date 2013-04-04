@@ -14,8 +14,12 @@ import os, time, sys
 from subprocess import Popen
 import signal
 
-DEBUG = True
-PIC_PATH = '/srv/live_model_imgs/'
+DEBUG = False
+STREAM_SERVER='66.254.119.93:1935'
+STREAM_USER='SeemeHostLiveOrigin'
+#STREAM_SERVER='31.192.112.170:1935'
+#STERAM_USER='UserEdge'
+PIC_PATH = '/srv/live_model_imgs_ramfs/'
 MAX_FPS = 15
 MIN_FPS = 1
 INC_DEC_FACTOR = 1
@@ -34,7 +38,7 @@ class StreamDumper(object):
              p = self.processes[model]
              p.kill()
         p = Popen(['/usr/local/bin/ffmpeg', '-analyzeduration', '0', '-tune', 'zerolatency',
-             '-i', 'rtmp://66.254.119.93:1935/SeemeHostLiveOrigin/%s/%s_%s live=1' % ((model,) * 3),
+             '-i', 'rtmp://%s/%s/%s/%s_%s live=1' % (STREAM_SERVER, STREAM_USER, model, model, model),
              '-an', '-r', str(MAX_FPS), '-s', JPEG_SIZE, '-q:v', str(JPEG_QUALITY),
               model + '_img%d.jpg'], cwd=PIC_PATH, stdout=FNULL, stderr=FNULL)
         self.processes[model] = p
