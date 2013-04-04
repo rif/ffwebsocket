@@ -16,11 +16,11 @@ import signal
 
 DEBUG = True
 PIC_PATH = '/srv/live_model_imgs/'
-MAX_FPS = 1
+MAX_FPS = 15
 MIN_FPS = 1
 INC_DEC_FACTOR = 1
 BOGGED_FACTOR = 1 # used to send to client more fps than currently
-JPEG_QUALITY = 5  # 1-high, 31-low, never go above 13
+JPEG_QUALITY = 1  # 1-high, 31-low, never go above 13
 JPEG_SIZE = '320x240'
 CLEAN_INTERVAL = 5 
 FNULL = open('/dev/null', 'w')
@@ -130,7 +130,7 @@ def send_img():
             data = f.read()
         for ws in web_sockets:                        
             if event.name.startswith(ws.model + "_img"):
-                 ws.send(b64encode(data))
+                 gevent.spawn(ws.send, b64encode(data))
         sem.release()
 
 def event_producer(fd, q):
