@@ -13,6 +13,7 @@ from base64 import b64encode
 import os, time, sys, getopt
 from subprocess import Popen
 import signal
+import atexit
 
 DEBUG = False
 """
@@ -28,12 +29,13 @@ STREAM_SERVER='66.254.119.93:1935'
 STREAM_USER='SeemeHostLiveOrigin'
 PIC_PATH = '/srv/DEV_model_imgs_ramfs/'
 PORT=8023
+FLASH_PORT=10843
 
 # global setting
 MAX_FPS = 15
 MIN_FPS = 1
 INC_DEC_FACTOR = 1
-BOGGED_FACTOR = 1 # used to send to client more fps than currently
+BOGGED_FACTOR = 0.7 # used to send to client more fps than currently
 JPEG_QUALITY = 1  # 1-high, 31-low, never go above 13
 JPEG_SIZE = '320x240'
 CLEAN_INTERVAL = 5 
@@ -165,10 +167,13 @@ def cleanup(path, interval):
 
 """kill all ffmpeg before exit"""    
 def sig_handler(signum, frame):
+    kill_ffmpeg_on_exit()
+    sys.exit(0)
+
+def kill_ffmpeg_on_exit():
     if DEBUG: print("killing all ffmpeg processes before exit...")
     for model,p in stream_dumper.processes:
         p.kill()
-    sys.exit(0)
 
 try:
     opts, args = getopt.getopt(sys.argv[1:], "dr:", ["debug", "run="])
@@ -186,6 +191,7 @@ for o, a in opts:
             STERAM_USER='UserEdge'
             PIC_PATH = '/srv/LIVE_model_imgs_ramfs/'
             PORT=8022
+            FLASH_PORT=10842
     else:
         assert False, "unhandled option"
 
@@ -202,9 +208,10 @@ gevent.spawn(send_img)
 signal.signal(signal.SIGTERM, sig_handler) 
 signal.signal(signal.SIGINT , sig_handler) 
 gevent.signal(signal.SIGQUIT, sig_handler)
+atexit.register(kill_ffmpeg_on_exit)
 
-print('Listening on port http://0.0.0.0:%s and on port 10843 (flash policy server)'% PORT)
+print('Listening on port http://0.0.0.0:%s and on port %s (flash policy server)'% (PORT, FLASH_PORT))
 SocketIOServer(('0.0.0.0', PORT), Application(),
                resource="socket.io", policy_server=True,
-               policy_listener=('0.0.0.0', 10843)).serve_forever()
+               policy_listener=('0.0.0.0', FLASH_PORT)).serve_forever()
 
