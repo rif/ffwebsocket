@@ -10,16 +10,26 @@ from gevent.queue import Queue
 from gevent.coros import Semaphore
 
 from base64 import b64encode
-import os, time, sys
+import os, time, sys, getopt
 from subprocess import Popen
 import signal
 
 DEBUG = False
+"""
+origins
+Chicago: ded817 ip: 66.254.120.102
+Amsterdam: ded1133 ip: 31.192.112.170
+edges
+Chicago: ded457 ip (eth0): 216.18.184.22 (eth1) 10.21.51.22
+Amsterdam: ded1178 ip: 31.192.113.234
+"""
+# dev settings. NOTE! live setting overwritten in main
 STREAM_SERVER='66.254.119.93:1935'
 STREAM_USER='SeemeHostLiveOrigin'
-#STREAM_SERVER='31.192.112.170:1935'
-#STERAM_USER='UserEdge'
-PIC_PATH = '/srv/live_model_imgs_ramfs/'
+PIC_PATH = '/srv/DEV_model_imgs_ramfs/'
+PORT=8023
+
+# global setting
 MAX_FPS = 15
 MIN_FPS = 1
 INC_DEC_FACTOR = 1
@@ -153,18 +163,6 @@ def cleanup(path, interval):
                 if os.path.isfile(f): os.remove(f)
         gevent.sleep(interval)
 
-sem = Semaphore()
-web_sockets = []
-
-q = Queue()
-fd = inotify.init()
-inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
-
-stream_dumper = StreamDumper()
-gevent.spawn(cleanup, PIC_PATH, CLEAN_INTERVAL)
-gevent.spawn(event_producer, fd, q)
-gevent.spawn(send_img)
-
 """kill all ffmpeg before exit"""    
 def sig_handler(signum, frame):
     if DEBUG: print("killing all ffmpeg processes before exit...")
@@ -172,12 +170,41 @@ def sig_handler(signum, frame):
         p.kill()
     sys.exit(0)
 
+try:
+    opts, args = getopt.getopt(sys.argv[1:], "dr:", ["debug", "run="])
+except getopt.GetoptError as err:
+    # print help information and exit:
+    print str(err) # will print something like "option -a not recognized"
+    print("USEAGE:\n\t -r/--run=live|dev \n\t -d/--debug for debug")
+    sys.exit(2)
+for o, a in opts:
+    if o in ("-d", "--debug"):
+        DEBUG = True
+    elif o in ("-r", "--run"):
+        if a == 'live':
+            STREAM_SERVER='216.18.184.22:1935'
+            STERAM_USER='UserEdge'
+            PIC_PATH = '/srv/LIVE_model_imgs_ramfs/'
+            PORT=8022
+    else:
+        assert False, "unhandled option"
+
+sem = Semaphore()
+web_sockets = []
+q = Queue()
+fd = inotify.init()
+inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
+stream_dumper = StreamDumper()
+gevent.spawn(cleanup, PIC_PATH, CLEAN_INTERVAL)
+gevent.spawn(event_producer, fd, q)
+gevent.spawn(send_img)
+
 signal.signal(signal.SIGTERM, sig_handler) 
 signal.signal(signal.SIGINT , sig_handler) 
 gevent.signal(signal.SIGQUIT, sig_handler)
 
-print 'Listening on port http://0.0.0.0:8000 and on port 10843 (flash policy server)'
-SocketIOServer(('0.0.0.0', 8000), Application(),
+print('Listening on port http://0.0.0.0:%s and on port 10843 (flash policy server)'% PORT)
+SocketIOServer(('0.0.0.0', PORT), Application(),
                resource="socket.io", policy_server=True,
                policy_listener=('0.0.0.0', 10843)).serve_forever()
 
