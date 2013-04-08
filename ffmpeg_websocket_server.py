@@ -188,7 +188,7 @@ for o, a in opts:
     elif o in ("-r", "--run"):
         if a == 'live':
             STREAM_SERVER='216.18.184.22:1935'
-            STERAM_USER='UserEdge'
+            STREAM_USER='UserEdge'
             PIC_PATH = '/srv/LIVE_model_imgs_ramfs/'
             PORT=8022
             FLASH_PORT=10842
