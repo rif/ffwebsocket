@@ -52,7 +52,7 @@ class StreamDumper(object):
         p = Popen(['/usr/local/bin/ffmpeg', '-analyzeduration', '0', '-tune', 'zerolatency',
              '-i', 'rtmp://%s/%s/%s/%s_%s live=1' % (STREAM_SERVER, STREAM_USER, model, model, model),
              '-an', '-r', str(MAX_FPS), '-s', JPEG_SIZE, '-q:v', str(JPEG_QUALITY),
-              model + '_img%d.jpg'], cwd=PIC_PATH, stdout=FNULL, stderr=FNULL)
+              model + '_img%d.jpg'], cwd=PIC_PATH, stdout=FNULL, stderr=FNULL, close_fds=True)
         self.processes[model] = p
 
     def stop_dump(self, model):
