@@ -14,6 +14,7 @@ import os, time, sys, getopt
 from subprocess import Popen
 import signal
 import atexit
+import cgi
 
 DEBUG = False
 """
@@ -28,8 +29,8 @@ Amsterdam: ded1178 ip: 31.192.113.234
 STREAM_SERVER='66.254.119.93:1935'
 STREAM_USER='SeemeHostLiveOrigin'
 PIC_PATH = '/srv/DEV_model_imgs_ramfs/'
-PORT=8023
-FLASH_PORT=10843
+PORT=8022
+FLASH_PORT=10842
 
 # global setting
 MAX_FPS = 15
@@ -48,17 +49,20 @@ class StreamDumper(object):
     def start_dump(self, model):
         if model in self.processes:
              p = self.processes[model]
-             p.kill()
-        p = Popen(['/usr/local/bin/ffmpeg', '-analyzeduration', '0', '-tune', 'zerolatency',
+             p.communicate('q')
+        command = ['/usr/local/bin/ffmpeg', '-analyzeduration', '0', '-tune', 'zerolatency',
              '-i', 'rtmp://%s/%s/%s/%s_%s live=1' % (STREAM_SERVER, STREAM_USER, model, model, model),
              '-an', '-r', str(MAX_FPS), '-s', JPEG_SIZE, '-q:v', str(JPEG_QUALITY),
-              model + '_img%d.jpg'], cwd=PIC_PATH, stdout=FNULL, stderr=FNULL, close_fds=True)
+              model + '_img%d.jpg']
+	if DEBUG: print(" ".join(command))
+	gevent.sleep(2) # wait a while for stream to start
+        p = Popen(command, cwd=PIC_PATH, stdout=FNULL, stderr=FNULL, close_fds=True)
         self.processes[model] = p
 
     def stop_dump(self, model):
         if model in self.processes:
             p = self.processes[model]
-            p.kill()
+            p.communicate('q')
 
 class SocketHandler(BaseNamespace):    
     def recv_connect(self):
@@ -102,10 +106,12 @@ class SocketHandler(BaseNamespace):
         self.client_fps = msg['fps']
     
     def send(self, msg):
-        if self.fps_counter > 0:
-            self.emit('img', {'b64jpeg': msg})
-            self.fps_counter -= 1
-
+	try:
+            if self.fps_counter > 0:
+                self.emit('img', {'b64jpeg': msg})
+                self.fps_counter -= 1
+        except:
+		print "img send failed!"
 
 class Application(object):
     def __init__(self):
@@ -113,18 +119,20 @@ class Application(object):
 
     def __call__(self, environ, start_response):
         path = environ['PATH_INFO'].strip('/')
-        query = environ['QUERY_STRING']
+	print path
 
         if path.startswith("socket.io"):
             socketio_manage(environ, {'/vid': SocketHandler})
             return
-        if path.startswith("start"):
-            if DEBUG: print "MODEL ONLINE: ", query
-            stream_dumper.start_dump(query)
-            return ok(start_response)
-        if path.startswith("stop"):
-            if DEBUG: print "MODEL OFFLINE: ", query
-            stream_dumper.stop_dump(query)
+        if path.startswith("modelstatus"):
+            post = cgi.FieldStorage(fp=environ['wsgi.input'], environ=environ, keep_blank_values=True)
+            status = post.getfirst('status', '')
+            model = post.getfirst("userName", "MODEL_NAME_NOT_FOUND")
+            if DEBUG: print("MODEL %s STATUS: %s" % (model, status))
+            if status == 'start':
+                 gevent.spawn(stream_dumper.start_dump, model)
+            else:
+                 gevent.spawn(stream_dumper.stop_dump, model)
             return ok(start_response)
         return not_found(start_response)
 
@@ -166,14 +174,12 @@ def cleanup(path, interval):
         gevent.sleep(interval)
 
 """kill all ffmpeg before exit"""    
-def sig_handler(signum, frame):
-    kill_ffmpeg_on_exit()
-    sys.exit(0)
-
-def kill_ffmpeg_on_exit():
+def kill_ffmpeg_on_exit(signumi=None, frame=None):
     if DEBUG: print("killing all ffmpeg processes before exit...")
     for model,p in stream_dumper.processes:
-        p.kill()
+	print "ZXXXX", model, p
+        p.communicate('q')
+    sys.exit(0)
 
 try:
     opts, args = getopt.getopt(sys.argv[1:], "dr:", ["debug", "run="])
@@ -190,8 +196,8 @@ for o, a in opts:
             STREAM_SERVER='216.18.184.22:1935'
             STREAM_USER='UserEdge'
             PIC_PATH = '/srv/LIVE_model_imgs_ramfs/'
-            PORT=8022
-            FLASH_PORT=10842
+            PORT=8023
+            FLASH_PORT=10843
     else:
         assert False, "unhandled option"
 
@@ -205,9 +211,9 @@ gevent.spawn(cleanup, PIC_PATH, CLEAN_INTERVAL)
 gevent.spawn(event_producer, fd, q)
 gevent.spawn(send_img)
 
-signal.signal(signal.SIGTERM, sig_handler) 
-signal.signal(signal.SIGINT , sig_handler) 
-gevent.signal(signal.SIGQUIT, sig_handler)
+signal.signal(signal.SIGTERM, kill_ffmpeg_on_exit)
+signal.signal(signal.SIGINT , kill_ffmpeg_on_exit) 
+gevent.signal(signal.SIGQUIT, kill_ffmpeg_on_exit)
 atexit.register(kill_ffmpeg_on_exit)
 
 print('Listening on port http://0.0.0.0:%s and on port %s (flash policy server)'% (PORT, FLASH_PORT))
