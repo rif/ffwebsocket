@@ -33,6 +33,7 @@ STREAM_SERVER='66.254.119.93:1935'
 STREAM_USER='SeemeHostLiveOrigin'
 PIC_PATH = '/srv/DEV_model_imgs_ramfs/'
 ONLINE_MODELS_URL='http://dev.seeme.com:6100/onlinemodels'
+PID_FILE='/tmp/DEV_ffmpeg_websocket_server.pid'
 PORT=8022
 FLASH_PORT=10842
 
@@ -52,12 +53,7 @@ class StreamDumper(object):
 
     def start_dump(self, model, wait=2):
         if model in self.processes:
-	     if self.processes[model].poll():
-                 p = self.processes[model]
-                 if DEBUG: print("restarting process for %s, status: %s" % (model, p.poll()))
-                 p.kill()
-                 p.wait()
-	     else:
+	     if not self.processes[model].poll():
                  if DEBUG: print("ignoring...")
                  return
         command = ['/usr/local/bin/ffmpeg', '-analyzeduration', '0', '-tune', 'zerolatency',
@@ -113,7 +109,8 @@ class SocketHandler(BaseNamespace):
     
     def on_set_model(self, msg):
         if DEBUG: print "MODEL REQUEST: ", msg['model']
-        self.model = msg['model']
+	self.model = msg['model']
+        stream_dumper.start_dump(self.model, 0)
     
     def on_heartbeat(self, msg):
         #if DEBUG: print "GOT: %s HAVE: %s" % (msg['fps'], getattr(self, 'fps', 0))
@@ -193,6 +190,7 @@ def cleanup(path, interval):
 """kill all ffmpeg before exit"""    
 def kill_ffmpeg_on_exit(signumi=None, frame=None):
     if DEBUG: print("killing all ffmpeg processes before exit...")
+    os.remove(PID_FILE)
     for model in stream_dumper.processes:
         p = stream_dumper.processes[model]
         p.kill()
@@ -215,6 +213,7 @@ for o, a in opts:
             STREAM_USER='UserEdge'
             PIC_PATH = '/srv/LIVE_model_imgs_ramfs/'
             ONLINE_MODELS_URL='http://www.seeme.com/onlinemodels'
+            PID_FILE='/tmp/LIVE_ffmpeg_websocket_server.pid'
             PORT=8023
             FLASH_PORT=10843
     else:
@@ -234,6 +233,10 @@ signal.signal(signal.SIGTERM, kill_ffmpeg_on_exit)
 signal.signal(signal.SIGINT , kill_ffmpeg_on_exit) 
 gevent.signal(signal.SIGQUIT, kill_ffmpeg_on_exit)
 atexit.register(kill_ffmpeg_on_exit)
+
+if DEBUG: print("writing pid file: %s" % PID_FILE)
+with open(PID_FILE, 'w') as f:
+    f.write(str(os.getpid()))
 
 # start ffmpeg processes for online models
 r = requests.get(ONLINE_MODELS_URL)
