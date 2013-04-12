@@ -15,6 +15,9 @@ from subprocess import Popen
 import signal
 import atexit
 import cgi
+import requests
+import simplejson as json
+
 
 DEBUG = False
 """
@@ -29,6 +32,7 @@ Amsterdam: ded1178 ip: 31.192.113.234
 STREAM_SERVER='66.254.119.93:1935'
 STREAM_USER='SeemeHostLiveOrigin'
 PIC_PATH = '/srv/DEV_model_imgs_ramfs/'
+ONLINE_MODELS_URL='http://dev.seeme.com:6100/onlinemodels'
 PORT=8022
 FLASH_PORT=10842
 
@@ -46,23 +50,32 @@ class StreamDumper(object):
     def __init__(self):
         self.processes = {}
 
-    def start_dump(self, model):
+    def start_dump(self, model, wait=2):
         if model in self.processes:
-             p = self.processes[model]
-             p.communicate('q')
+	     if self.processes[model].poll():
+                 p = self.processes[model]
+                 if DEBUG: print("restarting process for %s, status: %s" % (model, p.poll()))
+                 p.kill()
+                 p.wait()
+	     else:
+                 if DEBUG: print("ignoring...")
+                 return
         command = ['/usr/local/bin/ffmpeg', '-analyzeduration', '0', '-tune', 'zerolatency',
+             '-shortest', '-xerror', '-indexmem', '1000', '-rtbufsize', '1000', '-max_alloc', '2000000',
              '-i', 'rtmp://%s/%s/%s/%s_%s live=1' % (STREAM_SERVER, STREAM_USER, model, model, model),
-             '-an', '-r', str(MAX_FPS), '-s', JPEG_SIZE, '-q:v', str(JPEG_QUALITY),
+             '-an', '-r', str(MAX_FPS), '-s', JPEG_SIZE, '-threads', '1', '-q:v', str(JPEG_QUALITY),
               model + '_img%d.jpg']
 	if DEBUG: print(" ".join(command))
-	gevent.sleep(2) # wait a while for stream to start
+	gevent.sleep(wait) # wait a while for stream to start
         p = Popen(command, cwd=PIC_PATH, stdout=FNULL, stderr=FNULL, close_fds=True)
         self.processes[model] = p
 
     def stop_dump(self, model):
         if model in self.processes:
             p = self.processes[model]
-            p.communicate('q')
+            p.kill()
+            p.wait()
+            del self.processes[model]
 
 class SocketHandler(BaseNamespace):    
     def recv_connect(self):
@@ -82,15 +95,16 @@ class SocketHandler(BaseNamespace):
             web_sockets.remove(self)
             sem.release()
         self.loop_on = False
+        if DEBUG: print("RECEIVED DISCONNECT!")
     
     def fps_loop(self):
         def fps_control(self):        
             if self.client_fps >= self.fps and self.fps < MAX_FPS:            
                 self.fps += INC_DEC_FACTOR
-                if DEBUG: print "INC TO: ", self.fps
+                #if DEBUG: print "INC TO: ", self.fps
             elif self.client_fps < (self.fps * BOGGED_FACTOR) and self.fps > MIN_FPS:   
                 self.fps -= INC_DEC_FACTOR
-                if DEBUG: print "DEC TO: ", self.fps
+                #if DEBUG: print "DEC TO: ", self.fps
             self.fps_counter = self.fps
             self.heartbeat = False
             gevent.sleep(1)
@@ -102,16 +116,13 @@ class SocketHandler(BaseNamespace):
         self.model = msg['model']
     
     def on_heartbeat(self, msg):
-        if DEBUG: print "GOT: %s HAVE: %s" % (msg['fps'], getattr(self, 'fps', 0))
+        #if DEBUG: print "GOT: %s HAVE: %s" % (msg['fps'], getattr(self, 'fps', 0))
         self.client_fps = msg['fps']
     
     def send(self, msg):
-	try:
-            if self.fps_counter > 0:
-                self.emit('img', {'b64jpeg': msg})
-                self.fps_counter -= 1
-        except:
-		print "img send failed!"
+        if self.fps_counter > 0:
+            self.emit('img', {'b64jpeg': msg})
+            self.fps_counter -= 1
 
 class Application(object):
     def __init__(self):
@@ -119,7 +130,6 @@ class Application(object):
 
     def __call__(self, environ, start_response):
         path = environ['PATH_INFO'].strip('/')
-	print path
 
         if path.startswith("socket.io"):
             socketio_manage(environ, {'/vid': SocketHandler})
@@ -127,19 +137,20 @@ class Application(object):
         if path.startswith("modelstatus"):
             post = cgi.FieldStorage(fp=environ['wsgi.input'], environ=environ, keep_blank_values=True)
             status = post.getfirst('status', '')
-            model = post.getfirst("userName", "MODEL_NAME_NOT_FOUND")
+            model = post.getfirst('userName', '')
+            if not model: return respond('invalid model name', start_response)
             if DEBUG: print("MODEL %s STATUS: %s" % (model, status))
             if status == 'start':
                  gevent.spawn(stream_dumper.start_dump, model)
             else:
                  gevent.spawn(stream_dumper.stop_dump, model)
-            return ok(start_response)
+            return respond('ok', start_response)
         return not_found(start_response)
 
 
-def ok(start_response):
+def respond(message, start_response):
     start_response('200', [])
-    return ['ok']
+    return [message]
 
 def not_found(start_response):
     start_response('404 Not Found', [])
@@ -154,7 +165,7 @@ def send_img():
             data = f.read()
         for ws in web_sockets:                        
             if event.name.startswith(ws.model + "_img"):
-                 gevent.spawn(ws.send, b64encode(data))
+                 ws.send(b64encode(data))
         sem.release()
 
 def event_producer(fd, q):
@@ -167,18 +178,25 @@ def event_producer(fd, q):
 def cleanup(path, interval):
     while True:
         now = time.time()
+        count = 0
         for f in os.listdir(PIC_PATH):
             f = os.path.join(PIC_PATH, f)
             if os.stat(f).st_mtime < now - interval:
-                if os.path.isfile(f): os.remove(f)
+                os.remove(f)
+                count += 1
+        if DEBUG:
+            print("Active connections: %d" % len(web_sockets))
+            print("Active models: %d" % len(stream_dumper.processes))
+            print("cleanned: %d files" % count)
         gevent.sleep(interval)
 
 """kill all ffmpeg before exit"""    
 def kill_ffmpeg_on_exit(signumi=None, frame=None):
     if DEBUG: print("killing all ffmpeg processes before exit...")
-    for model,p in stream_dumper.processes:
-	print "ZXXXX", model, p
-        p.communicate('q')
+    for model in stream_dumper.processes:
+        p = stream_dumper.processes[model]
+        p.kill()
+        p.wait()
     sys.exit(0)
 
 try:
@@ -196,6 +214,7 @@ for o, a in opts:
             STREAM_SERVER='216.18.184.22:1935'
             STREAM_USER='UserEdge'
             PIC_PATH = '/srv/LIVE_model_imgs_ramfs/'
+            ONLINE_MODELS_URL='http://www.seeme.com/onlinemodels'
             PORT=8023
             FLASH_PORT=10843
     else:
@@ -215,6 +234,14 @@ signal.signal(signal.SIGTERM, kill_ffmpeg_on_exit)
 signal.signal(signal.SIGINT , kill_ffmpeg_on_exit) 
 gevent.signal(signal.SIGQUIT, kill_ffmpeg_on_exit)
 atexit.register(kill_ffmpeg_on_exit)
+
+# start ffmpeg processes for online models
+r = requests.get(ONLINE_MODELS_URL)
+if r.status_code == 200:
+    if DEBUG: print("starting initial ffmpeg processes for: %s" % r.content)
+    online_model_list = json.loads(r.content)
+    for model in online_model_list:
+	stream_dumper.start_dump(model, 0)
 
 print('Listening on port http://0.0.0.0:%s and on port %s (flash policy server)'% (PORT, FLASH_PORT))
 SocketIOServer(('0.0.0.0', PORT), Application(),
