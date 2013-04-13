@@ -170,7 +170,7 @@ def send_img():
     while True:
         event = q.get()
         event_model = event.name.split("_img")[0]
-        if event_model.lower() not in (ws.model.lower() for ws in web_sockets)
+        if event_model.lower() not in (ws.model.lower() for ws in web_sockets):
              continue # do not read file if there is no client requesting it
         with open(PIC_PATH + event.name, 'rb') as f:
              data = f.read()
@@ -245,9 +245,9 @@ gevent.spawn(file_cleanup, PIC_PATH, CLEAN_INTERVAL)
 gevent.spawn(event_producer, fd, q)
 gevent.spawn(send_img)
 
-gevent.signal(signal.SIGTERM, exit_cleanup)
-gevent.signal(signal.SIGINT , exit_cleanup) 
-gevent.signal(signal.SIGQUIT, exit_cleanup)
+signal.signal(signal.SIGTERM, exit_cleanup)
+signal.signal(signal.SIGINT , exit_cleanup) 
+signal.signal(signal.SIGQUIT, exit_cleanup)
 atexit.register(exit_cleanup)
 
 if DEBUG: print("writing pid file: %s" % PID_FILE)
