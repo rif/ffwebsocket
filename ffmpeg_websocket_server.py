@@ -51,9 +51,9 @@ class StreamDumper(object):
     def __init__(self):
         self.processes = {}
 
-    def start_dump(self, model, wait=2):
+    def start_dump(self, model, wait=0):
         if model in self.processes:
-	     if not self.processes[model].poll():
+	     if self.processes[model].poll() == None: # if ffmpeg process is running than do not start
                  if DEBUG: print("ignoring...")
                  return
         command = ['/usr/local/bin/ffmpeg', '-analyzeduration', '0', '-tune', 'zerolatency',
@@ -110,7 +110,7 @@ class SocketHandler(BaseNamespace):
     def on_set_model(self, msg):
         if DEBUG: print "MODEL REQUEST: ", msg['model']
 	self.model = msg['model']
-        stream_dumper.start_dump(self.model, 0)
+        stream_dumper.start_dump(self.model)
     
     def on_heartbeat(self, msg):
         #if DEBUG: print "GOT: %s HAVE: %s" % (msg['fps'], getattr(self, 'fps', 0))
@@ -131,6 +131,8 @@ class Application(object):
         if path.startswith("socket.io"):
             socketio_manage(environ, {'/vid': SocketHandler})
             return
+        if path.startswith("stats"):
+            return respond(stats(), start_response)
         if path.startswith("modelstatus"):
             post = cgi.FieldStorage(fp=environ['wsgi.input'], environ=environ, keep_blank_values=True)
             status = post.getfirst('status', '')
@@ -138,7 +140,7 @@ class Application(object):
             if not model: return respond('invalid model name', start_response)
             if DEBUG: print("MODEL %s STATUS: %s" % (model, status))
             if status == 'start':
-                 gevent.spawn(stream_dumper.start_dump, model)
+                 gevent.spawn(stream_dumper.start_dump, model, 2)
             else:
                  gevent.spawn(stream_dumper.stop_dump, model)
             return respond('ok', start_response)
@@ -153,17 +155,29 @@ def not_found(start_response):
     start_response('404 Not Found', [])
     return ['<h1>Not Found</h1>']
 
+def stats():
+    return """<table>
+<tr><td>Active connections</td><td>%d</td></tr>
+<tr><td>Active models</td><td>%d</td></tr>
+<tr><td>Active ffmpeg processes</td><td>%d</td></tr>
+<tr><td>Image queue length</td><td>%d</td></tr>
+</table>""" % (len(web_sockets),
+               len(stream_dumper.processes),
+               len([p for p in stream_dumper.processes.values() if p.poll() == None]),
+               q.qsize())
+
 def send_img():
     while True:
         event = q.get()
-        sem.acquire()
-        path = PIC_PATH + event.name
-        with open(path, 'rb') as f:
-            data = f.read()
-        for ws in web_sockets:                        
-            if event.name.startswith(ws.model + "_img"):
-                 ws.send(b64encode(data))
-        sem.release()
+        event_model = event.name.split("_img")[0]
+        if event_model not in (ws.model for ws in web_sockets):
+             continue # do not read file if there is no client requesting it
+        with open(PIC_PATH + event.name, 'rb') as f:
+             sem.acquire()
+             for ws in web_sockets:                        
+                 if event.name.startswith(ws.model + "_img"):
+                     ws.send(b64encode(f.read()))
+             sem.release()
 
 def event_producer(fd, q):
     while True:
@@ -172,7 +186,7 @@ def event_producer(fd, q):
             q.put(event)
 
 '''repetitively cleans all file from the specified path older than specified interval'''
-def cleanup(path, interval):
+def file_cleanup(path, interval):
     while True:
         now = time.time()
         count = 0
@@ -185,10 +199,11 @@ def cleanup(path, interval):
             print("Active connections: %d" % len(web_sockets))
             print("Active models: %d" % len(stream_dumper.processes))
             print("cleanned: %d files" % count)
+            print("image queue length: %d" % q.qsize())
         gevent.sleep(interval)
 
 """kill all ffmpeg before exit"""    
-def kill_ffmpeg_on_exit(signumi=None, frame=None):
+def exit_cleanup(signumi=None, frame=None):
     if DEBUG: print("killing all ffmpeg processes before exit...")
     os.remove(PID_FILE)
     for model in stream_dumper.processes:
@@ -225,14 +240,14 @@ q = Queue()
 fd = inotify.init()
 inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
 stream_dumper = StreamDumper()
-gevent.spawn(cleanup, PIC_PATH, CLEAN_INTERVAL)
+gevent.spawn(file_cleanup, PIC_PATH, CLEAN_INTERVAL)
 gevent.spawn(event_producer, fd, q)
 gevent.spawn(send_img)
 
-signal.signal(signal.SIGTERM, kill_ffmpeg_on_exit)
-signal.signal(signal.SIGINT , kill_ffmpeg_on_exit) 
-gevent.signal(signal.SIGQUIT, kill_ffmpeg_on_exit)
-atexit.register(kill_ffmpeg_on_exit)
+gevent.signal(signal.SIGTERM, exit_cleanup)
+gevent.signal(signal.SIGINT , exit_cleanup) 
+gevent.signal(signal.SIGQUIT, exit_cleanup)
+atexit.register(exit_cleanup)
 
 if DEBUG: print("writing pid file: %s" % PID_FILE)
 with open(PID_FILE, 'w') as f:
@@ -244,7 +259,7 @@ if r.status_code == 200:
     if DEBUG: print("starting initial ffmpeg processes for: %s" % r.content)
     online_model_list = json.loads(r.content)
     for model in online_model_list:
-	stream_dumper.start_dump(model, 0)
+	stream_dumper.start_dump(model)
 
 print('Listening on port http://0.0.0.0:%s and on port %s (flash policy server)'% (PORT, FLASH_PORT))
 SocketIOServer(('0.0.0.0', PORT), Application(),
