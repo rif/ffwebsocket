@@ -170,13 +170,14 @@ def send_img():
     while True:
         event = q.get()
         event_model = event.name.split("_img")[0]
-        if event_model not in (ws.model for ws in web_sockets):
+        if event_model.lower() not in (ws.model.lower() for ws in web_sockets)
              continue # do not read file if there is no client requesting it
         with open(PIC_PATH + event.name, 'rb') as f:
+             data = f.read()
              sem.acquire()
              for ws in web_sockets:                        
-                 if event.name.startswith(ws.model + "_img"):
-                     ws.send(b64encode(f.read()))
+                 if event.name.lower().startswith(ws.model.lower() + "_img"):
+                     ws.send(b64encode(data))
              sem.release()
 
 def event_producer(fd, q):
