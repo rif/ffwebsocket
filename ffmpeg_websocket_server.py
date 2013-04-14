@@ -94,7 +94,8 @@ class SocketHandler(BaseNamespace):
         if DEBUG: print("RECEIVED DISCONNECT!")
     
     def fps_loop(self):
-        def fps_control(self):        
+        if DEBUG: print("event loop spawned")
+        def fps_control(self):
             if self.client_fps >= self.fps and self.fps < MAX_FPS:            
                 self.fps += INC_DEC_FACTOR
                 #if DEBUG: print "INC TO: ", self.fps
@@ -103,9 +104,9 @@ class SocketHandler(BaseNamespace):
                 #if DEBUG: print "DEC TO: ", self.fps
             self.fps_counter = self.fps
             self.heartbeat = False
-            gevent.sleep(1)
         while self.loop_on:
             fps_control(self)
+            gevent.sleep(1)
     
     def on_set_model(self, msg):
         if DEBUG: print "MODEL REQUEST: ", msg['model']
@@ -118,7 +119,7 @@ class SocketHandler(BaseNamespace):
     
     def send(self, msg):
         if self.fps_counter > 0:
-            self.emit('img', {'b64jpeg': msg})
+            self.emit('img', {'b64jpeg': b64encode(msg)})
             self.fps_counter -= 1
 
 class Application(object):
@@ -169,16 +170,15 @@ def stats():
 def send_img():
     while True:
         event = q.get()
-        event_model = event.name.split("_img")[0]
-        if event_model.lower() not in (ws.model.lower() for ws in web_sockets):
-             continue # do not read file if there is no client requesting it
-        with open(PIC_PATH + event.name, 'rb') as f:
-             data = f.read()
-             sem.acquire()
-             for ws in web_sockets:                        
-                 if event.name.lower().startswith(ws.model.lower() + "_img"):
-                     ws.send(b64encode(data))
-             sem.release()
+        img = None
+        sem.acquire()
+	for ws in web_sockets:
+             if event.name.lower().startswith(ws.model.lower() + "_img"):
+                  if img == None:
+                        with open(PIC_PATH + event.name, 'rb') as f:
+                             img = f.read()          
+                  ws.send(img)
+        sem.release()
 
 def event_producer(fd, q):
     while True:
@@ -200,7 +200,6 @@ def file_cleanup(path, interval):
             print("Active connections: %d" % len(web_sockets))
             print("Active models: %d" % len(stream_dumper.processes))
             print("cleanned: %d files" % count)
-            print("image queue length: %d" % q.qsize())
         gevent.sleep(interval)
 
 """kill all ffmpeg before exit"""    
@@ -238,6 +237,7 @@ for o, a in opts:
 sem = Semaphore()
 web_sockets = []
 q = Queue()
+q.maxsize = 1000
 fd = inotify.init()
 inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
 stream_dumper = StreamDumper()
