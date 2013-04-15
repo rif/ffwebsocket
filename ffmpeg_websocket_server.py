@@ -9,7 +9,7 @@ import gevent_inotifyx as inotify
 from gevent.queue import Queue
 from gevent.coros import Semaphore
 
-from base64 import b64encode
+import base64
 import os, time, sys, getopt
 from subprocess import Popen
 import signal
@@ -119,7 +119,8 @@ class SocketHandler(BaseNamespace):
     
     def send(self, msg):
         if self.fps_counter > 0:
-            self.emit('img', {'b64jpeg': b64encode(msg)})
+            #data = base64.encodestring(msg)
+            self.emit('img', {'b64jpeg': base64.encodestring(msg)})
             self.fps_counter -= 1
 
 class Application(object):
