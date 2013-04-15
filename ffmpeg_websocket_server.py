@@ -45,6 +45,7 @@ JPEG_QUALITY = 1  # 1-high, 31-low, never go above 13
 JPEG_SIZE = '320x240'
 CLEAN_INTERVAL = 5 
 FNULL = open('/dev/null', 'w')
+NAMESPACE='/vid'
 
 class StreamDumper(object):
     def __init__(self):
@@ -76,27 +77,22 @@ class SocketHandler(BaseNamespace, RoomsMixin):
     def recv_connect(self):
         self.client_fps = 0             # actual fps received from client
         self.fps = MIN_FPS              # currently serving fps
-        self.fps_counter = self.fps      # fps counter for sending
+        self.session['fps_counter'] = self.fps      # fps counter for sending
         self.model = ''
-        self.socket.spawn(self.fps_loop)     # spawns fps control
+        self.spawn(self.fps_loop)     # spawns fps control
         return True
         
     def on_chat(self, msg):
         self.broadcast_event('chat', msg)
 
     def on_join(self, channel):
+	if DEBUG: print("JOIN: %s" % channel)
         self.join(channel)
-        stream_dumper.start_dump(self.channel)    
+        stream_dumper.start_dump(channel)    
     
     def on_heartbeat(self, msg):
         #if DEBUG: print "GOT: %s HAVE: %s" % (msg['fps'], getattr(self, 'fps', 0))
         self.client_fps = msg['fps']
-    
-    def send(self, msg):
-        if self.fps_counter > 0:
-            #data = base64.encodestring(msg)
-            self.emit('img', {'b64jpeg': base64.encodestring(msg)})
-            self.fps_counter -= 1
     
     def fps_loop(self):
         if DEBUG: print("event loop spawned")
@@ -107,9 +103,9 @@ class SocketHandler(BaseNamespace, RoomsMixin):
             elif self.client_fps < (self.fps * BOGGED_FACTOR) and self.fps > MIN_FPS:   
                 self.fps -= INC_DEC_FACTOR
                 #if DEBUG: print "DEC TO: ", self.fps
-            self.fps_counter = self.fps
+            self.session['fps_counter'] = self.fps
             self.heartbeat = False
-        while self.loop_on:
+        while True:
             fps_control(self)
             gevent.sleep(1)
 
@@ -121,7 +117,7 @@ class Application(object):
         path = environ['PATH_INFO'].strip('/')
 
         if path.startswith("socket.io"):
-            socketio_manage(environ, {'/vid': SocketHandler})
+            socketio_manage(environ, {NAMESPACE: SocketHandler})
             return
         if path.startswith("stats"):
             return respond(stats(), start_response)
@@ -137,7 +133,6 @@ class Application(object):
                  gevent.spawn(stream_dumper.stop_dump, model)
             return respond('ok', start_response)
         return not_found(start_response)
-
 
 def respond(message, start_response):
     start_response('200', [])
@@ -159,16 +154,18 @@ def stats():
 def send_img(server):
     while True:
         event = q.get()                                       
-        room_name = self._get_room_name(room)
         img = None
         for sessid, socket in server.sockets.iteritems():
             if 'rooms' not in socket.session: continue
-            if event.name.lower() in socket.session['rooms']:
-                if not img:
-                    with open(PIC_PATH + event.name, 'rb') as f:
-                         img = f.read()
-                pkt = dict(type="event", name='img', args=base64.encodestring(img), endpoint='/vid')
-                socket.send_packet(pkt)
+            model = event.name.split("_img")[0]
+            if NAMESPACE + '_' + model.lower() in socket.session['rooms']:
+                if socket.session['fps_counter'] > 0:
+                    if not img:
+                        with open(PIC_PATH + event.name, 'rb') as f:
+                            img = f.read()
+                    pkt = dict(type="event", name='img', args=base64.encodestring(img), endpoint=NAMESPACE)
+                    socket.send_packet(pkt)
+                    socket.session['fps_counter'] -= 1
 
 def event_producer(fd, q):
     while True:
@@ -187,7 +184,6 @@ def file_cleanup(path, interval):
                 os.remove(f)
                 count += 1
         if DEBUG:
-            print("Active connections: %d" % len(web_sockets))
             print("Active models: %d" % len(stream_dumper.processes))
             print("cleanned: %d files" % count)
         gevent.sleep(interval)
