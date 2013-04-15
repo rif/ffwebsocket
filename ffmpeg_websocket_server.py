@@ -4,10 +4,9 @@ import gevent
 from socketio import socketio_manage
 from socketio.server import SocketIOServer
 from socketio.namespace import BaseNamespace
-
+from socketio.mixins import RoomsMixin
 import gevent_inotifyx as inotify
 from gevent.queue import Queue
-from gevent.coros import Semaphore
 
 import base64
 import os, time, sys, getopt
@@ -73,25 +72,31 @@ class StreamDumper(object):
             p.wait()
             del self.processes[model]
 
-class SocketHandler(BaseNamespace):    
+class SocketHandler(BaseNamespace, RoomsMixin):    
     def recv_connect(self):
-        sem.acquire()
-        web_sockets.append(self)
-        sem.release()
-        self.loop_on = True             # lope stop condition
         self.client_fps = 0             # actual fps received from client
         self.fps = MIN_FPS              # currently serving fps
         self.fps_counter = self.fps      # fps counter for sending
         self.model = ''
-        gevent.spawn(self.fps_loop)     # spawns fps control
+        self.socket.spawn(self.fps_loop)     # spawns fps control
+        return True
+        
+    def on_chat(self, msg):
+        self.broadcast_event('chat', msg)
 
-    def recv_disconnect(self):        
-        if self in web_sockets:
-            sem.acquire()
-            web_sockets.remove(self)
-            sem.release()
-        self.loop_on = False
-        if DEBUG: print("RECEIVED DISCONNECT!")
+    def on_join(self, channel):
+        self.join(channel)
+        stream_dumper.start_dump(self.channel)    
+    
+    def on_heartbeat(self, msg):
+        #if DEBUG: print "GOT: %s HAVE: %s" % (msg['fps'], getattr(self, 'fps', 0))
+        self.client_fps = msg['fps']
+    
+    def send(self, msg):
+        if self.fps_counter > 0:
+            #data = base64.encodestring(msg)
+            self.emit('img', {'b64jpeg': base64.encodestring(msg)})
+            self.fps_counter -= 1
     
     def fps_loop(self):
         if DEBUG: print("event loop spawned")
@@ -107,21 +112,6 @@ class SocketHandler(BaseNamespace):
         while self.loop_on:
             fps_control(self)
             gevent.sleep(1)
-    
-    def on_set_model(self, msg):
-        if DEBUG: print "MODEL REQUEST: ", msg['model']
-	self.model = msg['model']
-        stream_dumper.start_dump(self.model)
-    
-    def on_heartbeat(self, msg):
-        #if DEBUG: print "GOT: %s HAVE: %s" % (msg['fps'], getattr(self, 'fps', 0))
-        self.client_fps = msg['fps']
-    
-    def send(self, msg):
-        if self.fps_counter > 0:
-            #data = base64.encodestring(msg)
-            self.emit('img', {'b64jpeg': base64.encodestring(msg)})
-            self.fps_counter -= 1
 
 class Application(object):
     def __init__(self):
@@ -159,27 +149,26 @@ def not_found(start_response):
 
 def stats():
     return """<table>
-<tr><td>Active connections</td><td>%d</td></tr>
 <tr><td>Active models</td><td>%d</td></tr>
 <tr><td>Active ffmpeg processes</td><td>%d</td></tr>
 <tr><td>Image queue length</td><td>%d</td></tr>
-</table>""" % (len(web_sockets),
-               len(stream_dumper.processes),
+</table>""" % (len(stream_dumper.processes),
                len([p for p in stream_dumper.processes.values() if p.poll() == None]),
                q.qsize())
 
-def send_img():
+def send_img(server):
     while True:
-        event = q.get()
+        event = q.get()                                       
+        room_name = self._get_room_name(room)
         img = None
-        sem.acquire()
-	for ws in web_sockets:
-             if event.name.lower().startswith(ws.model.lower() + "_img"):
-                  if img == None:
-                        with open(PIC_PATH + event.name, 'rb') as f:
-                             img = f.read()          
-                  ws.send(img)
-        sem.release()
+        for sessid, socket in server.sockets.iteritems():
+            if 'rooms' not in socket.session: continue
+            if event.name.lower() in socket.session['rooms']:
+                if not img:
+                    with open(PIC_PATH + event.name, 'rb') as f:
+                         img = f.read()
+                pkt = dict(type="event", name='img', args=base64.encodestring(img), endpoint='/vid')
+                socket.send_packet(pkt)
 
 def event_producer(fd, q):
     while True:
@@ -235,8 +224,6 @@ for o, a in opts:
     else:
         assert False, "unhandled option"
 
-sem = Semaphore()
-web_sockets = []
 q = Queue()
 q.maxsize = 1000
 fd = inotify.init()
@@ -244,7 +231,6 @@ inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
 stream_dumper = StreamDumper()
 gevent.spawn(file_cleanup, PIC_PATH, CLEAN_INTERVAL)
 gevent.spawn(event_producer, fd, q)
-gevent.spawn(send_img)
 
 signal.signal(signal.SIGTERM, exit_cleanup)
 signal.signal(signal.SIGINT , exit_cleanup) 
@@ -264,7 +250,8 @@ if r.status_code == 200:
 	stream_dumper.start_dump(model)
 
 print('Listening on port http://0.0.0.0:%s and on port %s (flash policy server)'% (PORT, FLASH_PORT))
-SocketIOServer(('0.0.0.0', PORT), Application(),
+server = SocketIOServer(('0.0.0.0', PORT), Application(),
                resource="socket.io", policy_server=True,
-               policy_listener=('0.0.0.0', FLASH_PORT)).serve_forever()
-
+               policy_listener=('0.0.0.0', FLASH_PORT))
+gevent.spawn(send_img, server)
+server.serve_forever()
