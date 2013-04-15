@@ -90,7 +90,7 @@ class SocketHandler(BaseNamespace, RoomsMixin):
         stream_dumper.start_dump(channel)    
     
     def on_heartbeat(self, fps):
-        #if DEBUG: print "GOT: %s HAVE: %s" % (msg['fps'], getattr(self, 'fps', 0))
+        #if DEBUG: print "GOT: %s HAVE: %s" % (fps, getattr(self, 'fps', 0))
         self.client_fps = fps
     
     def fps_loop(self):
@@ -163,7 +163,7 @@ def send_img(server):
                         with open(PIC_PATH + event.name, 'rb') as f:
                             img = f.read()
                     pkt = dict(type="event", name='img', args=base64.encodestring(img), endpoint=NAMESPACE)
-                    socket.send_packet(pkt)
+                    if socket.connected: socket.send_packet(pkt)
                     socket.session['fps_counter'] -= 1
 
 def event_producer(fd, q):
