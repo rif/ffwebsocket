@@ -214,7 +214,7 @@ for o, a in opts:
             PIC_PATH = '/srv/LIVE_model_imgs_ramfs/'
             ONLINE_MODELS_URL='http://www.seeme.com/onlinemodels'
             PID_FILE='/tmp/LIVE_ffmpeg_websocket_server.pid'
-            PORT=8023
+            PORT=7023
             FLASH_PORT=10843
     else:
         assert False, "unhandled option"
