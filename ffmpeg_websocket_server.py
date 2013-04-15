@@ -52,6 +52,7 @@ class StreamDumper(object):
         self.processes = {}
 
     def start_dump(self, model, wait=0):
+        model = model.lower()
         if model in self.processes:
 	     if self.processes[model].poll() == None: # if ffmpeg process is running than do not start
                  if DEBUG: print("ignoring...")
