@@ -52,7 +52,6 @@ class StreamDumper(object):
         self.processes = {}
 
     def start_dump(self, model, wait=0):
-        model = model.lower()
         if model in self.processes:
 	     if self.processes[model].poll() == None: # if ffmpeg process is running than do not start
                  if DEBUG: print("ignoring...")
@@ -79,7 +78,6 @@ class SocketHandler(BaseNamespace, RoomsMixin):
         self.client_fps = 0             # actual fps received from client
         self.fps = MIN_FPS              # currently serving fps
         self.session['fps_counter'] = self.fps      # fps counter for sending
-        self.model = ''
         self.spawn(self.fps_loop)     # spawns fps control
         return True
         
@@ -87,7 +85,7 @@ class SocketHandler(BaseNamespace, RoomsMixin):
         self.broadcast_event('chat', msg)
 
     def on_join(self, channel):
-	if DEBUG: print("JOIN: %s" % channel)
+        if DEBUG: print("JOIN: %s" % channel)
         self.join(channel)
         stream_dumper.start_dump(channel)    
     
@@ -125,7 +123,7 @@ class Application(object):
         if path.startswith("modelstatus"):
             post = cgi.FieldStorage(fp=environ['wsgi.input'], environ=environ, keep_blank_values=True)
             status = post.getfirst('status', '')
-            model = post.getfirst('userName', '')
+            model = post.getfirst('userName', '').lower()
             if not model: return respond('invalid model name', start_response)
             if DEBUG: print("MODEL %s STATUS: %s" % (model, status))
             if status == 'start':
