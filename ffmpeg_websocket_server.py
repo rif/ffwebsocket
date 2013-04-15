@@ -89,9 +89,9 @@ class SocketHandler(BaseNamespace, RoomsMixin):
         self.join(channel)
         stream_dumper.start_dump(channel)    
     
-    def on_heartbeat(self, msg):
+    def on_heartbeat(self, fps):
         #if DEBUG: print "GOT: %s HAVE: %s" % (msg['fps'], getattr(self, 'fps', 0))
-        self.client_fps = msg['fps']
+        self.client_fps = fps
     
     def fps_loop(self):
         if DEBUG: print("event loop spawned")
@@ -123,7 +123,7 @@ class Application(object):
         if path.startswith("modelstatus"):
             post = cgi.FieldStorage(fp=environ['wsgi.input'], environ=environ, keep_blank_values=True)
             status = post.getfirst('status', '')
-            model = post.getfirst('userName', '').lower()
+            model = post.getfirst('userName', '')
             if not model: return respond('invalid model name', start_response)
             if DEBUG: print("MODEL %s STATUS: %s" % (model, status))
             if status == 'start':
@@ -157,7 +157,7 @@ def send_img(server):
         for sessid, socket in server.sockets.iteritems():
             if 'rooms' not in socket.session: continue
             model = event.name.split("_img")[0]
-            if NAMESPACE + '_' + model.lower() in socket.session['rooms']:
+            if NAMESPACE + '_' + model in socket.session['rooms']:
                 if socket.session['fps_counter'] > 0:
                     if not img:
                         with open(PIC_PATH + event.name, 'rb') as f:
