@@ -69,8 +69,9 @@ class StreamDumper(object):
     def stop_dump(self, model):
         if model in self.processes:
             p = self.processes[model]
-            p.kill()
-            p.wait()
+            if p.poll():
+                p.kill()
+                p.wait()
             del self.processes[model]
 
 class SocketHandler(BaseNamespace, RoomsMixin):    
@@ -80,6 +81,10 @@ class SocketHandler(BaseNamespace, RoomsMixin):
         self.session['fps_counter'] = self.fps      # fps counter for sending
         self.spawn(self.fps_loop)     # spawns fps control
         return True
+
+    def recv_disconnect(self):
+        if DEBUG: print("RECEIVED DISCONNECT")
+        self.disconnect(silent=True)
         
     def on_chat(self, msg):
         self.broadcast_event('chat', msg)
@@ -143,19 +148,28 @@ def not_found(start_response):
 
 def stats():
     return """<table>
+<tr><td>Active sessions</td><td>%d</td></tr>
 <tr><td>Active models</td><td>%d</td></tr>
 <tr><td>Active ffmpeg processes</td><td>%d</td></tr>
 <tr><td>Image queue length</td><td>%d</td></tr>
-</table>""" % (len(stream_dumper.processes),
+</table>""" % (len(server.sockets),
+               len(stream_dumper.processes),
                len([p for p in stream_dumper.processes.values() if p.poll() == None]),
                q.qsize())
 
 def send_img(server):
+    i = 0
     while True:
         event = q.get()                                       
         img = None
+        i += 1
         for sessid, socket in server.sockets.iteritems():
+            if i % 10000 == 0:
+               if DEBUG: print socket
+               i = 0
             if 'rooms' not in socket.session: continue
+            if socket.client_queue.qsize() > 50: continue # do not send more images to the queue to prevent memory inflation
+            #if not self.connected: self.kill(detach=True)
             model = event.name.split("_img")[0]
             if NAMESPACE + '_' + model in socket.session['rooms']:
                 if socket.session['fps_counter'] > 0:
@@ -173,19 +187,27 @@ def event_producer(fd, q):
             q.put(event)
 
 '''repetitively cleans all file from the specified path older than specified interval'''
-def file_cleanup(path, interval):
+def file_cleanup(path, interval, server):
     while True:
-        now = time.time()
-        count = 0
-        for f in os.listdir(PIC_PATH):
-            f = os.path.join(PIC_PATH, f)
-            if os.stat(f).st_mtime < now - interval:
-                os.remove(f)
-                count += 1
-        if DEBUG:
-            print("Active models: %d" % len(stream_dumper.processes))
-            print("cleanned: %d files" % count)
-        gevent.sleep(interval)
+        try: #this loop must never stop
+           now = time.time()
+           count = 0
+           for f in os.listdir(PIC_PATH):
+               f = os.path.join(PIC_PATH, f)
+               if os.stat(f).st_mtime < now - interval:
+                   os.remove(f)
+                   count += 1
+           sess_count = 0
+           for sessid, socket in server.sockets.iteritems():
+              if not socket.connected:
+                   socket.kill(detach=True)
+                   sess_count += 1
+           if DEBUG:
+               print("Active models: %d" % len(stream_dumper.processes))
+               print("cleanned: %d files" % count)
+               print("cleanned: %d sessions" % sess_count)
+           gevent.sleep(interval)
+        except Exception as e: print "EXCEPTION IN CLEAN LOOP: %s" % e
 
 """kill all ffmpeg before exit"""    
 def exit_cleanup(signumi=None, frame=None):
@@ -214,7 +236,7 @@ for o, a in opts:
             PIC_PATH = '/srv/LIVE_model_imgs_ramfs/'
             ONLINE_MODELS_URL='http://www.seeme.com/onlinemodels'
             PID_FILE='/tmp/LIVE_ffmpeg_websocket_server.pid'
-            PORT=7023
+            PORT=8023
             FLASH_PORT=10843
     else:
         assert False, "unhandled option"
@@ -224,7 +246,6 @@ q.maxsize = 1000
 fd = inotify.init()
 inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
 stream_dumper = StreamDumper()
-gevent.spawn(file_cleanup, PIC_PATH, CLEAN_INTERVAL)
 gevent.spawn(event_producer, fd, q)
 
 signal.signal(signal.SIGTERM, exit_cleanup)
@@ -249,4 +270,5 @@ server = SocketIOServer(('0.0.0.0', PORT), Application(),
                resource="socket.io", policy_server=True,
                policy_listener=('0.0.0.0', FLASH_PORT))
 gevent.spawn(send_img, server)
+gevent.spawn(file_cleanup, PIC_PATH, CLEAN_INTERVAL,server)
 server.serve_forever()
