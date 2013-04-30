@@ -69,10 +69,12 @@ class StreamDumper(object):
     def stop_dump(self, model):
         if model in self.processes:
             p = self.processes[model]
-            if p.poll():
-                p.kill()
-                p.wait()
-            del self.processes[model]
+            try:
+                if p.poll():
+                     p.kill()
+                     p.wait()
+            finally:
+                del self.processes[model]
 
 class SocketHandler(BaseNamespace, RoomsMixin):    
     def recv_connect(self):
@@ -206,6 +208,10 @@ def file_cleanup(path, interval, server):
                print("Active models: %d" % len(stream_dumper.processes))
                print("cleanned: %d files" % count)
                print("cleanned: %d sessions" % sess_count)
+           # if queue is full then shutdown (hope some monitoring process will restart it)
+           # no point keeping it online
+           if q.qsize() == 1000:
+               exit_cleanup()
            gevent.sleep(interval)
         except Exception as e: print "EXCEPTION IN CLEAN LOOP: %s" % e
 
@@ -214,9 +220,11 @@ def exit_cleanup(signumi=None, frame=None):
     if DEBUG: print("killing all ffmpeg processes before exit...")
     os.remove(PID_FILE)
     for model in stream_dumper.processes:
-        p = stream_dumper.processes[model]
-        p.kill()
-        p.wait()
+        try:
+           p = stream_dumper.processes[model]
+           p.kill()
+           p.wait()
+        except: pass
     sys.exit(0)
 
 try:
