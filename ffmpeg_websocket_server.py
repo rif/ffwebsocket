@@ -85,7 +85,9 @@ class ImgConnection(SocketConnection):
         self.fps_counter = self.fps      # fps counter for sending
         self.model = None
         self.loop_running = True
-        Thread(target=self.fps_loop).start()     # spawns fps control
+        t = Thread(target=self.fps_loop)
+        t.daemon = True
+        t.start()     # spawns fps control
         return True
         
     def on_close(self):
@@ -212,14 +214,20 @@ q = Queue(1000)
 fd = inotify.init()
 inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
 stream_dumper = StreamDumper()
-Thread(target=event_producer, args=(fd, q)).start()
-Thread(target=send_img).start()
-Thread(target=file_cleanup, args=(PIC_PATH, CLEAN_INTERVAL)).start()
+t1 = Thread(target=event_producer, args=(fd, q))
+t1.daemon = True
+t1.start()
+t2 = Thread(target=send_img)
+t2.daemon = True
+t2.start()
+t3 = Thread(target=file_cleanup, args=(PIC_PATH, CLEAN_INTERVAL))
+t3.daemon = True
+t3.start()
 
 signal.signal(signal.SIGTERM, exit_cleanup)
 signal.signal(signal.SIGINT , exit_cleanup) 
 signal.signal(signal.SIGQUIT, exit_cleanup)
-#atexit.register(exit_cleanup)
+atexit.register(exit_cleanup)
 
 logging.debug("writing pid file: %s" % PID_FILE)
 with open(PID_FILE, 'w') as f:
@@ -254,9 +262,13 @@ class ModelStatusHandler(web.RequestHandler):
         if not model: return respond('invalid model name', start_response)
         logging.debug("MODEL %s STATUS: %s" % (model, status))
         if status == 'start':
-              Thread(target=stream_dumper.start_dump, args=(model, 2)).start()
+              t = Thread(target=stream_dumper.start_dump, args=(model, 2))
+              t.daemon = True
+              t.start()
         else:
-              Thread(target=stream_dumper.stop_dump, args=(model,)).start()
+              t = Thread(target=stream_dumper.stop_dump, args=(model,))
+              t.daemon = True
+              t.start()
         return respond('ok', start_response)
 
 # Create tornadio router
