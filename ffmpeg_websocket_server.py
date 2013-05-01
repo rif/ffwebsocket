@@ -84,7 +84,7 @@ class ImgConnection(SocketConnection):
         self.fps_counter = self.fps      # fps counter for sending
         self.model = None
         self.loop_running = True
-        Thread(self.fps_loop).start()     # spawns fps control
+        Thread(target=self.fps_loop).start()     # spawns fps control
         return True
         
     @event('close')
@@ -145,9 +145,9 @@ class Application(object):
             if not model: return respond('invalid model name', start_response)
             logging.debug("MODEL %s STATUS: %s" % (model, status))
             if status == 'start':
-                  Thread(stream_dumper.start_dump, model, 2).start()
+                  Thread(target=stream_dumper.start_dump, args=(model, 2)).start()
             else:
-                  Thread(stream_dumper.stop_dump, model).start()
+                  Thread(target=stream_dumper.stop_dump, target=(model,)).start()
             return respond('ok', start_response)
         return not_found(start_response)
 
@@ -254,9 +254,9 @@ q = Queue(1000)
 fd = inotify.init()
 inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
 stream_dumper = StreamDumper()
-Thread(event_producer, fd, q).start()
-Thread(send_img, server).start()
-Thread(file_cleanup, PIC_PATH, CLEAN_INTERVAL,server).start()
+Thread(target=event_producer, args=(fd, q).start()
+Thread(target=send_img, args=(server,)).start()
+Thread(target=file_cleanup, args=(PIC_PATH, CLEAN_INTERVAL, server)).start()
 
 
 signal.signal(signal.SIGTERM, exit_cleanup)
