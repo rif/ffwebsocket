@@ -255,8 +255,7 @@ class StatsHandler(web.RequestHandler):
                
 class ModelStatusHandler(web.RequestHandler):
     def post(self):
-        logging.info("params: %s" % self)
-        post = cgi.FieldStorage(fp=environ['wsgi.input'], environ=environ, keep_blank_values=True)
+        post = cgi.FieldStorage(fp=self.request.body, environ=self, keep_blank_values=True)
         status = post.getfirst('status', '')
         model = post.getfirst('userName', '')
         if not model: return respond('invalid model name', start_response)
@@ -277,7 +276,7 @@ ImgRouter = TornadioRouter(ImgConnection)
 # Create socket application
 application = web.Application(
     ImgRouter.apply_routes([(r"/stats", StatsHandler),
-                           (r"/smodelstatus", ModelStatusHandler)]),
+                           (r"/modelstatus", ModelStatusHandler)]),
     flash_policy_port = FLASH_PORT,
     flash_policy_file = os.path.join(ROOT, 'flashpolicy.xml'),
     socket_io_port = PORT
