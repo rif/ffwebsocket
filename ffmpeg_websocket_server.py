@@ -255,10 +255,11 @@ class StatsHandler(web.RequestHandler):
                
 class ModelStatusHandler(web.RequestHandler):
     def post(self):
-        post = cgi.FieldStorage(fp=self.request.body, environ=self, keep_blank_values=True)
-        status = post.getfirst('status', '')
-        model = post.getfirst('userName', '')
-        if not model: return respond('invalid model name', start_response)
+        status = self.get_argument('status', '')
+        model = self.get_argument('userName', '')
+        if not model:
+             self.write('invalid model name')
+             return
         logging.debug("MODEL %s STATUS: %s" % (model, status))
         if status == 'start':
               t = Thread(target=stream_dumper.start_dump, args=(model, 2))
@@ -268,7 +269,7 @@ class ModelStatusHandler(web.RequestHandler):
               t = Thread(target=stream_dumper.stop_dump, args=(model,))
               t.daemon = True
               t.start()
-        return respond('ok', start_response)
+        return self.write('ok')
 
 # Create tornadio router
 ImgRouter = TornadioRouter(ImgConnection)
