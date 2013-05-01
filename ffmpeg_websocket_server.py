@@ -77,8 +77,8 @@ class StreamDumper(object):
                 del self.processes[model]
 
 class ImgConnection(SocketConnection):
-    @event('open')    
-    def open(self):
+    def on_open(self, request):
+        logging.debug("request: %s", request)
         with sem: web_sockets.append(self)
         self.client_fps = 0             # actual fps received from client
         self.fps = MIN_FPS              # currently serving fps
@@ -88,8 +88,7 @@ class ImgConnection(SocketConnection):
         Thread(target=self.fps_loop).start()     # spawns fps control
         return True
         
-    @event('close')
-    def close(self):
+    def on_close(self):
         if self in web_sockets:
             with sem: web_sockets.remove(self)
         logging.debug("RECEIVED DISCONNECT")
@@ -115,7 +114,7 @@ class ImgConnection(SocketConnection):
             elif self.client_fps < (self.fps * BOGGED_FACTOR) and self.fps > MIN_FPS:   
                 self.fps -= INC_DEC_FACTOR
                 #logging.debug "DEC TO: ", self.fps
-            self.session['fps_counter'] = self.fps
+            self.fps_counter = self.fps
             self.heartbeat = False
         while self.loop_running:
             fps_control(self)
@@ -123,8 +122,7 @@ class ImgConnection(SocketConnection):
     
     def send(self, msg):
         if self.fps_counter > 0:
-            #data = base64.encodestring(msg)
-            self.emit('img', {'b64jpeg': base64.encodestring(msg)})
+            self.emit('img', base64.encodestring(msg))
             self.fps_counter -= 1
 
 class Application(object):
@@ -173,10 +171,12 @@ def stats():
 
 def send_img():
      while True:
-         img = None
+         event = q.get()
+	 img = None
          with sem:
+            logging.debug("connections: %s, event:%s" %(web_sockets, event.name))
             for ws in web_sockets:
-               if event.name.lower().startswith(ws.model.lower() + "_img"):
+               if ws.model and event.name.lower().startswith(ws.model.lower() + "_img"):
                   if img == None:
                         with open(PIC_PATH + event.name, 'rb') as f:
                              img = f.read()          
@@ -222,10 +222,11 @@ def exit_cleanup(signumi=None, frame=None):
     for model in stream_dumper.processes:
         try:
            p = stream_dumper.processes[model]
-           p.kill()
-           p.wait()
+           if not p.poll():
+               p.kill()
+               p.wait()
         except: pass
-    sys.exit(0)
+    sys.exit()
 
 try:
     opts, args = getopt.getopt(sys.argv[1:], "dr:", ["debug", "run="])
@@ -262,7 +263,7 @@ Thread(target=file_cleanup, args=(PIC_PATH, CLEAN_INTERVAL)).start()
 signal.signal(signal.SIGTERM, exit_cleanup)
 signal.signal(signal.SIGINT , exit_cleanup) 
 signal.signal(signal.SIGQUIT, exit_cleanup)
-atexit.register(exit_cleanup)
+#atexit.register(exit_cleanup)
 
 logging.debug("writing pid file: %s" % PID_FILE)
 with open(PID_FILE, 'w') as f:
