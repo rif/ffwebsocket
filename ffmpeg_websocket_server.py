@@ -229,7 +229,7 @@ signal.signal(signal.SIGINT , exit_cleanup)
 signal.signal(signal.SIGQUIT, exit_cleanup)
 atexit.register(exit_cleanup)
 
-logging.debug("writing pid file: %s" % PID_FILE)
+logging.info("writing pid file: %s" % PID_FILE)
 with open(PID_FILE, 'w') as f:
     f.write(str(os.getpid()))
 
