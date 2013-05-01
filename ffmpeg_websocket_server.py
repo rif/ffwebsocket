@@ -125,50 +125,6 @@ class ImgConnection(SocketConnection):
             self.emit('img', base64.encodestring(msg))
             self.fps_counter -= 1
 
-class Application(object):
-    def __init__(self):
-        self.buffer = []
-
-    def __call__(self, environ, start_response):
-        path = environ['PATH_INFO'].strip('/')
-
-        if path.startswith("socket.io"):
-            socketio_manage(environ, {NAMESPACE: SocketHandler})
-            return
-        if path.startswith("stats"):
-            return respond(stats(), start_response)
-        if path.startswith("modelstatus"):
-            post = cgi.FieldStorage(fp=environ['wsgi.input'], environ=environ, keep_blank_values=True)
-            status = post.getfirst('status', '')
-            model = post.getfirst('userName', '')
-            if not model: return respond('invalid model name', start_response)
-            logging.debug("MODEL %s STATUS: %s" % (model, status))
-            if status == 'start':
-                  Thread(target=stream_dumper.start_dump, args=(model, 2)).start()
-            else:
-                  Thread(target=stream_dumper.stop_dump, args=(model,)).start()
-            return respond('ok', start_response)
-        return not_found(start_response)
-
-def respond(message, start_response):
-    start_response('200', [])
-    return [message]
-
-def not_found(start_response):
-    start_response('404 Not Found', [])
-    return ['<h1>Not Found</h1>']
-
-def stats():
-    return """<table>
-<tr><td>Active sessions</td><td>%d</td></tr>
-<tr><td>Active models</td><td>%d</td></tr>
-<tr><td>Active ffmpeg processes</td><td>%d</td></tr>
-<tr><td>Image queue length</td><td>%d</td></tr>
-</table>""" % (len(web_sockets),
-               len(stream_dumper.processes),
-               len([p for p in stream_dumper.processes.values() if p.poll() == None]),
-               q.qsize())
-
 def send_img():
      while True:
          event = q.get()
@@ -277,13 +233,39 @@ if r.status_code == 200:
     for model in online_model_list:
 	stream_dumper.start_dump(model)
 
+class StatsHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.write("""<table>
+<tr><td>Active sessions</td><td>%d</td></tr>
+<tr><td>Active models</td><td>%d</td></tr>
+<tr><td>Active ffmpeg processes</td><td>%d</td></tr>
+<tr><td>Image queue length</td><td>%d</td></tr>
+</table>""" % (len(web_sockets),
+               len(stream_dumper.processes),
+               len([p for p in stream_dumper.processes.values() if p.poll() == None]),
+               q.qsize()))
+               
+class ModelStatusHandler(tornado.web.RequestHandler):
+    def post(self):
+        logging.info("params: %s" % self)
+        post = cgi.FieldStorage(fp=environ['wsgi.input'], environ=environ, keep_blank_values=True)
+        status = post.getfirst('status', '')
+        model = post.getfirst('userName', '')
+        if not model: return respond('invalid model name', start_response)
+        logging.debug("MODEL %s STATUS: %s" % (model, status))
+        if status == 'start':
+              Thread(target=stream_dumper.start_dump, args=(model, 2)).start()
+        else:
+              Thread(target=stream_dumper.stop_dump, args=(model,)).start()
+        return respond('ok', start_response)
 
 # Create tornadio router
 ImgRouter = TornadioRouter(ImgConnection)
 
 # Create socket application
 application = web.Application(
-    ImgRouter.urls,
+    ImgRouter.apply_routes([(r"/stats", StatsHandler),
+                           (r"/smodelstatus", ModelStatusHandler)]),
     flash_policy_port = FLASH_PORT,
     flash_policy_file = os.path.join(ROOT, 'flashpolicy.xml'),
     socket_io_port = PORT
