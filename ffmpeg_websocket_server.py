@@ -14,6 +14,7 @@ import cgi
 import requests
 import simplejson as json
 import threading
+import logging
 
 
 DEBUG = False
@@ -52,14 +53,14 @@ class StreamDumper(object):
     def start_dump(self, model, wait=0):
         if model in self.processes:
 	     if self.processes[model].poll() == None: # if ffmpeg process is running than do not start
-                 if DEBUG: print("ignoring...")
+                 logging.debug("ignoring...")
                  return
         command = ['/usr/local/bin/ffmpeg', '-analyzeduration', '0', '-tune', 'zerolatency',
              '-shortest', '-xerror', '-indexmem', '1000', '-rtbufsize', '1000', '-max_alloc', '2000000',
              '-i', 'rtmp://%s/%s/%s/%s_%s live=1' % (STREAM_SERVER, STREAM_USER, model, model, model),
              '-an', '-r', str(MAX_FPS), '-s', JPEG_SIZE, '-threads', '1', '-q:v', str(JPEG_QUALITY),
               model + '_img%d.jpg']
-	if DEBUG: print(" ".join(command))
+	logging.debug(" ".join(command))
 	gevent.sleep(wait) # wait a while for stream to start
         p = Popen(command, cwd=PIC_PATH, stdout=FNULL, stderr=FNULL, close_fds=True)
         self.processes[model] = p
@@ -88,31 +89,31 @@ class ImgConnection(SocketConnection):
         
     @event('close')
     def close(self):
-         if self in web_sockets:
+        if self in web_sockets:
             with sem: web_sockets.remove(self)
-        if DEBUG: print("RECEIVED DISCONNECT")
+        logging.debug("RECEIVED DISCONNECT")
         self.loop_running = False
 
     @event
     def join(self, model):
-        if DEBUG: print("JOIN: %s" % model)
+        logging.debug("JOIN: %s" % model)
         self.model = model
         stream_dumper.start_dump(self.model)
     
     @event
     def heartbeat(self, fps):
-        #if DEBUG: print "GOT: %s HAVE: %s" % (fps, getattr(self, 'fps', 0))
+        #logging.debug "GOT: %s HAVE: %s" % (fps, getattr(self, 'fps', 0))
         self.client_fps = fps
     
     def fps_loop(self):
-        if DEBUG: print("event loop spawned")
+        logging.debug("event loop spawned")
         def fps_control(self):
             if self.client_fps >= self.fps and self.fps < MAX_FPS:            
                 self.fps += INC_DEC_FACTOR
-                #if DEBUG: print "INC TO: ", self.fps
+                #logging.debug "INC TO: ", self.fps
             elif self.client_fps < (self.fps * BOGGED_FACTOR) and self.fps > MIN_FPS:   
                 self.fps -= INC_DEC_FACTOR
-                #if DEBUG: print "DEC TO: ", self.fps
+                #logging.debug "DEC TO: ", self.fps
             self.session['fps_counter'] = self.fps
             self.heartbeat = False
         while self.loop_running:
@@ -142,7 +143,7 @@ class Application(object):
             status = post.getfirst('status', '')
             model = post.getfirst('userName', '')
             if not model: return respond('invalid model name', start_response)
-            if DEBUG: print("MODEL %s STATUS: %s" % (model, status))
+            logging.debug("MODEL %s STATUS: %s" % (model, status))
             if status == 'start':
                   Thread(stream_dumper.start_dump, model, 2).start()
             else:
@@ -215,7 +216,7 @@ def file_cleanup(path, interval, server):
 
 """kill all ffmpeg before exit"""    
 def exit_cleanup(signumi=None, frame=None):
-    if DEBUG: print("killing all ffmpeg processes before exit...")
+    logging.debug("killing all ffmpeg processes before exit...")
     os.remove(PID_FILE)
     for model in stream_dumper.processes:
         try:
@@ -263,14 +264,14 @@ signal.signal(signal.SIGINT , exit_cleanup)
 signal.signal(signal.SIGQUIT, exit_cleanup)
 atexit.register(exit_cleanup)
 
-if DEBUG: print("writing pid file: %s" % PID_FILE)
+logging.debug("writing pid file: %s" % PID_FILE)
 with open(PID_FILE, 'w') as f:
     f.write(str(os.getpid()))
 
 # start ffmpeg processes for online models
 r = requests.get(ONLINE_MODELS_URL)
 if r.status_code == 200:
-    if DEBUG: print("starting initial ffmpeg processes for: %s" % r.content)
+    logging.debug("starting initial ffmpeg processes for: %s" % r.content)
     online_model_list = json.loads(r.content)
     for model in online_model_list:
 	stream_dumper.start_dump(model)
@@ -288,9 +289,7 @@ application = web.Application(
 )
 
 if __name__ == "__main__":
-    import logging
-    logging.getLogger().setLevel(logging.DEBUG)
-
+    logging.getLogger().setLevel(logging.DEBUG if DEBUG else logging.INFO)
     # Create and start tornadio server
     SocketServer(application)
 
