@@ -70,7 +70,7 @@ class StreamDumper(object):
         if model in self.processes:
             p = self.processes[model]
             try:
-                if p.poll():
+                if not p.poll():
                      p.kill()
                      p.wait()
             finally:
