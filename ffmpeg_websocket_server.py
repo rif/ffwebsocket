@@ -61,7 +61,7 @@ class StreamDumper(object):
              '-an', '-r', str(MAX_FPS), '-s', JPEG_SIZE, '-threads', '1', '-q:v', str(JPEG_QUALITY),
               model + '_img%d.jpg']
 	logging.debug(" ".join(command))
-	gevent.sleep(wait) # wait a while for stream to start
+	time.sleep(wait) # wait a while for stream to start
         p = Popen(command, cwd=PIC_PATH, stdout=FNULL, stderr=FNULL, close_fds=True)
         self.processes[model] = p
 
@@ -147,7 +147,7 @@ class Application(object):
             if status == 'start':
                   Thread(target=stream_dumper.start_dump, args=(model, 2)).start()
             else:
-                  Thread(target=stream_dumper.stop_dump, target=(model,)).start()
+                  Thread(target=stream_dumper.stop_dump, args=(model,)).start()
             return respond('ok', start_response)
         return not_found(start_response)
 
@@ -165,7 +165,7 @@ def stats():
 <tr><td>Active models</td><td>%d</td></tr>
 <tr><td>Active ffmpeg processes</td><td>%d</td></tr>
 <tr><td>Image queue length</td><td>%d</td></tr>
-</table>""" % (len(server.sockets),
+</table>""" % (len(web_sockets),
                len(stream_dumper.processes),
                len([p for p in stream_dumper.processes.values() if p.poll() == None]),
                q.qsize())
@@ -188,7 +188,7 @@ def event_producer(fd, q):
             q.put(event)
 
 '''repetitively cleans all file from the specified path older than specified interval'''
-def file_cleanup(path, interval, server):
+def file_cleanup(path, interval):
     while True:
         try: #this loop must never stop
            now = time.time()
@@ -199,10 +199,10 @@ def file_cleanup(path, interval, server):
                    os.remove(f)
                    count += 1
            sess_count = 0
-           for sessid, socket in server.sockets.iteritems():
-              if not socket.connected:
-                   socket.kill(detach=True)
-                   sess_count += 1
+#           for sessid, socket in server.sockets.iteritems():
+#              if not socket.connected:
+#                   socket.kill(detach=True)
+#                   sess_count += 1
            if DEBUG:
                print("Active models: %d" % len(stream_dumper.processes))
                print("cleanned: %d files" % count)
@@ -255,8 +255,8 @@ fd = inotify.init()
 inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
 stream_dumper = StreamDumper()
 Thread(target=event_producer, args=(fd, q)).start()
-Thread(target=send_img, args=(server,)).start()
-Thread(target=file_cleanup, args=(PIC_PATH, CLEAN_INTERVAL, server)).start()
+Thread(target=send_img).start()
+Thread(target=file_cleanup, args=(PIC_PATH, CLEAN_INTERVAL)).start()
 
 signal.signal(signal.SIGTERM, exit_cleanup)
 signal.signal(signal.SIGINT , exit_cleanup) 
@@ -283,7 +283,7 @@ ImgRouter = TornadioRouter(ImgConnection)
 application = web.Application(
     ImgRouter.urls,
     flash_policy_port = FLASH_PORT,
-    flash_policy_file = op.join(ROOT, 'flashpolicy.xml'),
+    flash_policy_file = os.path.join(ROOT, 'flashpolicy.xml'),
     socket_io_port = PORT
 )
 
