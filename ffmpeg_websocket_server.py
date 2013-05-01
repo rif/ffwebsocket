@@ -254,10 +254,9 @@ q = Queue(1000)
 fd = inotify.init()
 inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
 stream_dumper = StreamDumper()
-Thread(target=event_producer, args=(fd, q).start()
+Thread(target=event_producer, args=(fd, q)).start()
 Thread(target=send_img, args=(server,)).start()
 Thread(target=file_cleanup, args=(PIC_PATH, CLEAN_INTERVAL, server)).start()
-
 
 signal.signal(signal.SIGTERM, exit_cleanup)
 signal.signal(signal.SIGINT , exit_cleanup) 
