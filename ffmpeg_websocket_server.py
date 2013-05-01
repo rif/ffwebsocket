@@ -45,6 +45,7 @@ JPEG_SIZE = '320x240'
 CLEAN_INTERVAL = 5 
 FNULL = open('/dev/null', 'w')
 NAMESPACE='/vid'
+ROOT = os.path.normpath(os.path.dirname(__file__))
 
 class StreamDumper(object):
     def __init__(self):
