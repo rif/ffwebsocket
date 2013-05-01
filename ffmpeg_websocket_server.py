@@ -233,7 +233,7 @@ if r.status_code == 200:
     for model in online_model_list:
 	stream_dumper.start_dump(model)
 
-class StatsHandler(tornado.web.RequestHandler):
+class StatsHandler(web.RequestHandler):
     def get(self):
         self.write("""<table>
 <tr><td>Active sessions</td><td>%d</td></tr>
@@ -245,7 +245,7 @@ class StatsHandler(tornado.web.RequestHandler):
                len([p for p in stream_dumper.processes.values() if p.poll() == None]),
                q.qsize()))
                
-class ModelStatusHandler(tornado.web.RequestHandler):
+class ModelStatusHandler(web.RequestHandler):
     def post(self):
         logging.info("params: %s" % self)
         post = cgi.FieldStorage(fp=environ['wsgi.input'], environ=environ, keep_blank_values=True)
