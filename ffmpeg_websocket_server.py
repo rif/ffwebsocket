@@ -88,9 +88,6 @@ class SocketHandler(BaseNamespace, RoomsMixin):
         if DEBUG: print("RECEIVED DISCONNECT")
         self.disconnect(silent=True)
         
-    def on_chat(self, msg):
-        self.broadcast_event('chat', msg)
-
     def on_join(self, channel):
         if DEBUG: print("JOIN: %s" % channel)
         self.join(channel)
@@ -171,7 +168,6 @@ def send_img(server):
                i = 0
             if 'rooms' not in socket.session: continue
             if socket.client_queue.qsize() > 50: continue # do not send more images to the queue to prevent memory inflation
-            #if not self.connected: self.kill(detach=True)
             model = event.name.split("_img")[0]
             if NAMESPACE + '_' + model in socket.session['rooms']:
                 if socket.session['fps_counter'] > 0:
