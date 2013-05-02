@@ -127,13 +127,15 @@ def send_img():
         event = q.get()
         img = None
         with sem:
-            logging.debug("connections: %s, event:%s" %(web_sockets, event.name))
+            logging.info("connections: %s, event:%s" %(web_sockets, event.name))
             for ws in web_sockets:
+               # do not send more images to the queue to prevent memory inflation
+               if len(ws.session.send_queue) > 50: continue
                if ws.model and event.name.lower().startswith(ws.model.lower() + "_img") and ws.fps_counter > 0:
                   if img == None:
                         with open(PIC_PATH + event.name, 'rb') as f:
                              img = f.read()          
-                  ws.emit('img', base64.encodestring(msg))
+                  ws.emit('img', base64.encodestring(img))
                   ws.fps_counter -= 1
 
 def event_producer(fd, q):
@@ -211,23 +213,10 @@ class ModelStatusHandler(web.RequestHandler):
               stream_dumper.stop_dump(model)
         return self.write('ok')
 
-# Create tornadio router
-ImgRouter = TornadioRouter(ImgConnection)
-
-# Create socket application
-application = web.Application(
-    ImgRouter.apply_routes([(r"/stats", StatsHandler),
-                           (r"/modelstatus", ModelStatusHandler)]),
-    flash_policy_port = FLASH_PORT,
-    flash_policy_file = os.path.join(ROOT, 'flashpolicy.xml'),
-    socket_io_port = PORT
-)
-
 sem = threading.Lock()
 web_sockets = []
 q = Queue(1000)
 fd = inotify.init()
-inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
 stream_dumper = StreamDumper()
 main_switch = True
 
@@ -262,6 +251,8 @@ if __name__ == "__main__":
             assert False, "unhandled option"
     logging.getLogger().setLevel(LOG_LEVEL)
     
+
+    inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
     t1 = Thread(target=event_producer, args=(fd, q))
     t1.daemon = True
     t1.start()
@@ -288,7 +279,20 @@ if __name__ == "__main__":
         online_model_list = json.loads(r.content)
         for model in online_model_list:
 	    stream_dumper.start_dump(model)
-    
+
+    # Create tornadio router
+    ImgRouter = TornadioRouter(ImgConnection)
+   
+    # Create socket application
+    application = web.Application(
+        ImgRouter.apply_routes([(r"/stats", StatsHandler),
+                           (r"/modelstatus", ModelStatusHandler)]),
+        flash_policy_port = FLASH_PORT,
+        flash_policy_file = os.path.join(ROOT, 'flashpolicy.xml'),
+        socket_io_port = PORT
+    )
+
+ 
     # Create and start tornadio server
     SocketServer(application)
 
