@@ -210,14 +210,12 @@ for o, a in opts:
     else:
         assert False, "unhandled option"
 
-logging.info(1)
 sem = threading.Lock()
 web_sockets = []
 q = Queue(1000)
 fd = inotify.init()
 inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
 stream_dumper = StreamDumper()
-logging.info(2)
 t1 = Thread(target=event_producer, args=(fd, q))
 t1.daemon = True
 t1.start()
@@ -227,7 +225,6 @@ t2.start()
 t3 = Thread(target=file_cleanup, args=(PIC_PATH, CLEAN_INTERVAL))
 t3.daemon = True
 t3.start()
-logging.info(3)
 
 signal.signal(signal.SIGTERM, exit_cleanup)
 signal.signal(signal.SIGINT , exit_cleanup) 
@@ -241,7 +238,7 @@ with open(PID_FILE, 'w') as f:
 # start ffmpeg processes for online models
 r = requests.get(ONLINE_MODELS_URL)
 if r.status_code == 200:
-    logging.debug("starting initial ffmpeg processes for: %s" % r.content)
+    logging.info("starting initial ffmpeg processes for: %s" % r.content)
     online_model_list = json.loads(r.content)
     for model in online_model_list:
 	stream_dumper.start_dump(model)
@@ -265,7 +262,7 @@ class ModelStatusHandler(web.RequestHandler):
         if not model:
              self.write('invalid model name')
              return
-        logging.debug("MODEL %s STATUS: %s" % (model, status))
+        logging.info("MODEL %s STATUS: %s" % (model, status))
         if status == 'start':
               t = Thread(target=stream_dumper.start_dump, args=(model, 2))
               t.daemon = True
@@ -276,15 +273,8 @@ class ModelStatusHandler(web.RequestHandler):
               t.start()
         return self.write('ok')
 
-'''Temporary router for vid'''
-class RouterConnection(SocketConnection):
-    __endpoints__ = {'/vid': ImgConnection}
-
-    def on_open(self, info):
-        logging.info('Router', repr(info))
-
 # Create tornadio router
-ImgRouter = TornadioRouter(RouterConnection)
+ImgRouter = TornadioRouter(ImgConnection)
 
 # Create socket application
 application = web.Application(
