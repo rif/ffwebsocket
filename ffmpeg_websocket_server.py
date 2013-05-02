@@ -124,22 +124,23 @@ class ImgConnection(SocketConnection):
 
 def send_img():
      while main_switch:
-        event = q.get()
-        img = None
-        with sem:
-            logging.debug("connections: %s, event:%s" %(web_sockets, event.name))
-            for ws in web_sockets:
-               # do not send more images to the queue to prevent memory inflation
-               if len(ws.session.send_queue) > 50: continue
-               if ws.model and event.name.lower().startswith(ws.model.lower() + "_img") and ws.fps_counter > 0:
-                  if img == None:
-                        with open(PIC_PATH + event.name, 'rb') as f:
-                             img = f.read()          
-                  try:
+        try:
+            event = q.get()
+            img = None
+            with sem:
+                logging.debug("connections: %s, event:%s" %(web_sockets, event.name))
+                for ws in web_sockets:
+                   # do not send more images to the queue to prevent memory inflation
+                   if len(ws.session.send_queue) > 50: continue
+                   if ws.model and event.name.lower().startswith(ws.model.lower() + "_img") and ws.fps_counter > 0:
+                      if img == None:
+                            with open(PIC_PATH + event.name, 'rb') as f:
+                                 img = f.read()          
+                     
                       ws.emit('img', base64.encodestring(img))
-                  except Exception as e:
-                      logging.error("error emitting image: %s" % e.message)
-                  ws.fps_counter -= 1
+                      ws.fps_counter -= 1
+        except Exception as e:
+              logging.error("error emitting image: %s" % e.message)
 
 def event_producer(fd, q):
     while main_switch:
