@@ -47,14 +47,6 @@ FNULL = open('/dev/null', 'w')
 NAMESPACE='/vid'
 ROOT = os.path.normpath(os.path.dirname(__file__))
 
-sem = threading.Lock()
-web_sockets = []
-q = Queue(1000)
-fd = inotify.init()
-inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
-stream_dumper = StreamDumper()
-main_switch = True
-
 class StreamDumper(object):
     def __init__(self):
         self.processes = {}
@@ -236,6 +228,15 @@ application = web.Application(
     socket_io_port = PORT
 )
 
+sem = threading.Lock()
+web_sockets = []
+q = Queue(1000)
+fd = inotify.init()
+inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
+stream_dumper = StreamDumper()
+main_switch = True
+
+
 if __name__ == "__main__":
     try:
         opts, args = getopt.getopt(sys.argv[1:], "dr:", ["debug", "run="])
@@ -260,9 +261,15 @@ if __name__ == "__main__":
             assert False, "unhandled option"
     logging.getLogger().setLevel(logging.DEBUG if DEBUG else logging.INFO)
     
-    Thread(target=event_producer, args=(fd, q)).start()
-    Thread(target=send_img).start()
-    Thread(target=file_cleanup, args=(PIC_PATH, CLEAN_INTERVAL)).start()
+    t1 = Thread(target=event_producer, args=(fd, q))
+    t1.daemon = True
+    t1.start()
+    t2 = Thread(target=send_img)
+    t2.daemon = True
+    t2.start()
+    t3 = Thread(target=file_cleanup, args=(PIC_PATH, CLEAN_INTERVAL))
+    t3.daemon = True
+    t3.start()
 
     signal.signal(signal.SIGTERM, exit_cleanup)
     signal.signal(signal.SIGINT , exit_cleanup) 
