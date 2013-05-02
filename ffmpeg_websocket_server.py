@@ -218,15 +218,9 @@ fd = inotify.init()
 inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
 stream_dumper = StreamDumper()
 main_switch = True
-t1 = Thread(target=event_producer, args=(fd, q))
-t1.daemon = True
-t1.start()
-t2 = Thread(target=send_img)
-t2.daemon = True
-t2.start()
-t3 = Thread(target=file_cleanup, args=(PIC_PATH, CLEAN_INTERVAL))
-t3.daemon = True
-t3.start()
+Thread(target=event_producer, args=(fd, q)).start()
+Thread(target=send_img).start()
+Thread(target=file_cleanup, args=(PIC_PATH, CLEAN_INTERVAL)).start()
 
 signal.signal(signal.SIGTERM, exit_cleanup)
 signal.signal(signal.SIGINT , exit_cleanup) 
@@ -266,13 +260,9 @@ class ModelStatusHandler(web.RequestHandler):
              return
         logging.info("MODEL %s STATUS: %s" % (model, status))
         if status == 'start':
-              t = Thread(target=stream_dumper.start_dump, args=(model, 2))
-              t.daemon = True
-              t.start()
+              stream_dumper.start_dump(model, 2)
         else:
-              t = Thread(target=stream_dumper.stop_dump, args=(model,))
-              t.daemon = True
-              t.start()
+              stream_dumper.stop_dump(model)
         return self.write('ok')
 
 # Create tornadio router
