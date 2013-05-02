@@ -1,20 +1,21 @@
-import inotifyx as inotify
+from gevent import monkey; monkey.patch_all()
+import gevent
 
-from tornado import web
-from tornadio2 import SocketConnection, TornadioRouter, SocketServer, event
+from socketio import socketio_manage
+from socketio.server import SocketIOServer
+from socketio.namespace import BaseNamespace
+from socketio.mixins import RoomsMixin
+import gevent_inotifyx as inotify
+from gevent.queue import Queue
 
-from threading import Thread
 import base64
 import os, time, sys, getopt
 from subprocess import Popen
-from Queue import Queue
 import signal
 import atexit
 import cgi
 import requests
 import simplejson as json
-import threading
-import logging
 
 
 DEBUG = False
@@ -45,7 +46,6 @@ JPEG_SIZE = '320x240'
 CLEAN_INTERVAL = 5 
 FNULL = open('/dev/null', 'w')
 NAMESPACE='/vid'
-ROOT = os.path.normpath(os.path.dirname(__file__))
 
 class StreamDumper(object):
     def __init__(self):
@@ -54,15 +54,15 @@ class StreamDumper(object):
     def start_dump(self, model, wait=0):
         if model in self.processes:
 	     if self.processes[model].poll() == None: # if ffmpeg process is running than do not start
-                 logging.debug("ignoring...")
+                 if DEBUG: print("ignoring...")
                  return
         command = ['/usr/local/bin/ffmpeg', '-analyzeduration', '0', '-tune', 'zerolatency',
              '-shortest', '-xerror', '-indexmem', '1000', '-rtbufsize', '1000', '-max_alloc', '2000000',
              '-i', 'rtmp://%s/%s/%s/%s_%s live=1' % (STREAM_SERVER, STREAM_USER, model, model, model),
              '-an', '-r', str(MAX_FPS), '-s', JPEG_SIZE, '-threads', '1', '-q:v', str(JPEG_QUALITY),
               model + '_img%d.jpg']
-	logging.debug(" ".join(command))
-	time.sleep(wait) # wait a while for stream to start
+	if DEBUG: print(" ".join(command))
+	gevent.sleep(wait) # wait a while for stream to start
         p = Popen(command, cwd=PIC_PATH, stdout=FNULL, stderr=FNULL, close_fds=True)
         self.processes[model] = p
 
@@ -76,69 +76,107 @@ class StreamDumper(object):
             finally:
                 del self.processes[model]
 
-class ImgConnection(SocketConnection):
-    def on_open(self, request):
-        logging.debug("request: %s", request)
-        with sem: web_sockets.append(self)
+class SocketHandler(BaseNamespace, RoomsMixin):    
+    def recv_connect(self):
         self.client_fps = 0             # actual fps received from client
         self.fps = MIN_FPS              # currently serving fps
-        self.fps_counter = self.fps      # fps counter for sending
-        self.model = None
-        self.loop_running = True
-        t = Thread(target=self.fps_loop)
-        t.daemon = True
-        t.start()     # spawns fps control
+        self.session['fps_counter'] = self.fps      # fps counter for sending
+        self.spawn(self.fps_loop)     # spawns fps control
         return True
-        
-    def on_close(self):
-        if self in web_sockets:
-            with sem: web_sockets.remove(self)
-        logging.debug("RECEIVED DISCONNECT")
-        self.loop_running = False
 
-    @event
-    def join(self, model):
-        logging.debug("JOIN: %s" % model)
-        self.model = model
-        stream_dumper.start_dump(self.model)
+    def recv_disconnect(self):
+        if DEBUG: print("RECEIVED DISCONNECT")
+        self.disconnect(silent=True)
+        
+    def on_join(self, channel):
+        if DEBUG: print("JOIN: %s" % channel)
+        self.join(channel)
+        stream_dumper.start_dump(channel)    
     
-    @event
-    def heartbeat(self, fps):
-        #logging.debug "GOT: %s HAVE: %s" % (fps, getattr(self, 'fps', 0))
+    def on_heartbeat(self, fps):
+        #if DEBUG: print "GOT: %s HAVE: %s" % (fps, getattr(self, 'fps', 0))
         self.client_fps = fps
     
     def fps_loop(self):
-        logging.debug("event loop spawned")
+        if DEBUG: print("event loop spawned")
         def fps_control(self):
             if self.client_fps >= self.fps and self.fps < MAX_FPS:            
                 self.fps += INC_DEC_FACTOR
-                #logging.debug "INC TO: ", self.fps
+                #if DEBUG: print "INC TO: ", self.fps
             elif self.client_fps < (self.fps * BOGGED_FACTOR) and self.fps > MIN_FPS:   
                 self.fps -= INC_DEC_FACTOR
-                #logging.debug "DEC TO: ", self.fps
-            self.fps_counter = self.fps
+                #if DEBUG: print "DEC TO: ", self.fps
+            self.session['fps_counter'] = self.fps
             self.heartbeat = False
-        while self.loop_running:
+        while True:
             fps_control(self)
-            time.sleep(1)
-    
-    def send(self, msg):
-        if self.fps_counter > 0:
-            self.emit('img', base64.encodestring(msg))
-            self.fps_counter -= 1
+            gevent.sleep(1)
 
-def send_img():
-     while True:
-         event = q.get()
-	 img = None
-         with sem:
-            logging.debug("connections: %s, event:%s" %(web_sockets, event.name))
-            for ws in web_sockets:
-               if ws.model and event.name.lower().startswith(ws.model.lower() + "_img"):
-                  if img == None:
+class Application(object):
+    def __init__(self):
+        self.buffer = []
+
+    def __call__(self, environ, start_response):
+        path = environ['PATH_INFO'].strip('/')
+
+        if path.startswith("socket.io"):
+            socketio_manage(environ, {NAMESPACE: SocketHandler})
+            return
+        if path.startswith("stats"):
+            return respond(stats(), start_response)
+        if path.startswith("modelstatus"):
+            post = cgi.FieldStorage(fp=environ['wsgi.input'], environ=environ, keep_blank_values=True)
+            status = post.getfirst('status', '')
+            model = post.getfirst('userName', '')
+            if not model: return respond('invalid model name', start_response)
+            if DEBUG: print("MODEL %s STATUS: %s" % (model, status))
+            if status == 'start':
+                 gevent.spawn(stream_dumper.start_dump, model, 2)
+            else:
+                 gevent.spawn(stream_dumper.stop_dump, model)
+            return respond('ok', start_response)
+        return not_found(start_response)
+
+def respond(message, start_response):
+    start_response('200', [])
+    return [message]
+
+def not_found(start_response):
+    start_response('404 Not Found', [])
+    return ['<h1>Not Found</h1>']
+
+def stats():
+    return """<table>
+<tr><td>Active sessions</td><td>%d</td></tr>
+<tr><td>Active models</td><td>%d</td></tr>
+<tr><td>Active ffmpeg processes</td><td>%d</td></tr>
+<tr><td>Image queue length</td><td>%d</td></tr>
+</table>""" % (len(server.sockets),
+               len(stream_dumper.processes),
+               len([p for p in stream_dumper.processes.values() if p.poll() == None]),
+               q.qsize())
+
+def send_img(server):
+    i = 0
+    while True:
+        event = q.get()                                       
+        img = None
+        i += 1
+        for sessid, socket in server.sockets.iteritems():
+            if i % 10000 == 0:
+               if DEBUG: print socket
+               i = 0
+            if 'rooms' not in socket.session: continue
+            if socket.client_queue.qsize() > 50: continue # do not send more images to the queue to prevent memory inflation
+            model = event.name.split("_img")[0]
+            if NAMESPACE + '_' + model in socket.session['rooms']:
+                if socket.session['fps_counter'] > 0:
+                    if not img:
                         with open(PIC_PATH + event.name, 'rb') as f:
-                             img = f.read()          
-                  ws.send(img)
+                            img = f.read()
+                    pkt = dict(type="event", name='img', args=base64.encodestring(img), endpoint=NAMESPACE)
+                    if socket.connected: socket.send_packet(pkt)
+                    socket.session['fps_counter'] -= 1
 
 def event_producer(fd, q):
     while True:
@@ -147,7 +185,7 @@ def event_producer(fd, q):
             q.put(event)
 
 '''repetitively cleans all file from the specified path older than specified interval'''
-def file_cleanup(path, interval):
+def file_cleanup(path, interval, server):
     while True:
         try: #this loop must never stop
            now = time.time()
@@ -158,10 +196,10 @@ def file_cleanup(path, interval):
                    os.remove(f)
                    count += 1
            sess_count = 0
-#           for sessid, socket in server.sockets.iteritems():
-#              if not socket.connected:
-#                   socket.kill(detach=True)
-#                   sess_count += 1
+           for sessid, socket in server.sockets.iteritems():
+              if not socket.connected:
+                   socket.kill(detach=True)
+                   sess_count += 1
            if DEBUG:
                print("Active models: %d" % len(stream_dumper.processes))
                print("cleanned: %d files" % count)
@@ -170,21 +208,20 @@ def file_cleanup(path, interval):
            # no point keeping it online
            if q.qsize() == 1000:
                exit_cleanup()
-           time.sleep(interval)
+           gevent.sleep(interval)
         except Exception as e: print "EXCEPTION IN CLEAN LOOP: %s" % e
 
 """kill all ffmpeg before exit"""    
 def exit_cleanup(signumi=None, frame=None):
-    logging.debug("killing all ffmpeg processes before exit...")
+    if DEBUG: print("killing all ffmpeg processes before exit...")
     os.remove(PID_FILE)
     for model in stream_dumper.processes:
         try:
            p = stream_dumper.processes[model]
-           if not p.poll():
-               p.kill()
-               p.wait()
+           p.kill()
+           p.wait()
         except: pass
-    sys.exit()
+    sys.exit(0)
 
 try:
     opts, args = getopt.getopt(sys.argv[1:], "dr:", ["debug", "run="])
@@ -208,84 +245,34 @@ for o, a in opts:
     else:
         assert False, "unhandled option"
 
-sem = threading.Lock()
-web_sockets = []
-q = Queue(1000)
+q = Queue()
+q.maxsize = 1000
 fd = inotify.init()
 inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
 stream_dumper = StreamDumper()
-t1 = Thread(target=event_producer, args=(fd, q))
-t1.daemon = True
-t1.start()
-t2 = Thread(target=send_img)
-t2.daemon = True
-t2.start()
-t3 = Thread(target=file_cleanup, args=(PIC_PATH, CLEAN_INTERVAL))
-t3.daemon = True
-t3.start()
+gevent.spawn(event_producer, fd, q)
 
 signal.signal(signal.SIGTERM, exit_cleanup)
 signal.signal(signal.SIGINT , exit_cleanup) 
 signal.signal(signal.SIGQUIT, exit_cleanup)
 atexit.register(exit_cleanup)
 
-logging.info("writing pid file: %s" % PID_FILE)
+if DEBUG: print("writing pid file: %s" % PID_FILE)
 with open(PID_FILE, 'w') as f:
     f.write(str(os.getpid()))
 
 # start ffmpeg processes for online models
 r = requests.get(ONLINE_MODELS_URL)
 if r.status_code == 200:
-    logging.debug("starting initial ffmpeg processes for: %s" % r.content)
+    if DEBUG: print("starting initial ffmpeg processes for: %s" % r.content)
     online_model_list = json.loads(r.content)
     for model in online_model_list:
 	stream_dumper.start_dump(model)
 
-class StatsHandler(web.RequestHandler):
-    def get(self):
-        self.write("""<table>
-<tr><td>Active sessions</td><td>%d</td></tr>
-<tr><td>Active models</td><td>%d</td></tr>
-<tr><td>Active ffmpeg processes</td><td>%d</td></tr>
-<tr><td>Image queue length</td><td>%d</td></tr>
-</table>""" % (len(web_sockets),
-               len(stream_dumper.processes),
-               len([p for p in stream_dumper.processes.values() if p.poll() == None]),
-               q.qsize()))
-               
-class ModelStatusHandler(web.RequestHandler):
-    def post(self):
-        status = self.get_argument('status', '')
-        model = self.get_argument('userName', '')
-        if not model:
-             self.write('invalid model name')
-             return
-        logging.debug("MODEL %s STATUS: %s" % (model, status))
-        if status == 'start':
-              t = Thread(target=stream_dumper.start_dump, args=(model, 2))
-              t.daemon = True
-              t.start()
-        else:
-              t = Thread(target=stream_dumper.stop_dump, args=(model,))
-              t.daemon = True
-              t.start()
-        return self.write('ok')
-
-# Create tornadio router
-ImgRouter = TornadioRouter(ImgConnection)
-
-# Create socket application
-application = web.Application(
-    ImgRouter.apply_routes([(r"/stats", StatsHandler),
-                           (r"/modelstatus", ModelStatusHandler)]),
-    flash_policy_port = FLASH_PORT,
-    flash_policy_file = os.path.join(ROOT, 'flashpolicy.xml'),
-    socket_io_port = PORT
-)
-
-if __name__ == "__main__":
-    logging.getLogger().setLevel(logging.DEBUG if DEBUG else logging.INFO)
-    # Create and start tornadio server
-    SocketServer(application)
-
-
+print('Listening on port http://0.0.0.0:%s and on port %s (flash policy server)'% (PORT, FLASH_PORT))
+server = SocketIOServer(('0.0.0.0', PORT), Application(),
+               resource="socket.io", policy_server=True,
+               policy_listener=('0.0.0.0', FLASH_PORT))
+gevent.spawn(send_img, server)
+gevent.spawn(file_cleanup, PIC_PATH, CLEAN_INTERVAL,server)
+server.serve_forever()
