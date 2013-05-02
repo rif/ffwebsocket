@@ -17,7 +17,7 @@ import threading
 import logging
 
 
-DEBUG = False
+LOG_LEVEL = logging.INFO
 """
 origins
 Chicago: ded817 ip: 66.254.120.102
@@ -158,10 +158,9 @@ def file_cleanup(path, interval):
 #              if not socket.connected:
 #                   socket.kill(detach=True)
 #                   sess_count += 1
-           if DEBUG:
-               print("Active models: %d" % len(stream_dumper.processes))
-               print("cleanned: %d files" % count)
-               print("cleanned: %d sessions" % sess_count)
+           logging.debug("Active models: %d" % len(stream_dumper.processes))
+           logging.debug("cleanned: %d files" % count)
+           logging.debug("cleanned: %d sessions" % sess_count)
            # if queue is full then shutdown (hope some monitoring process will restart it)
            # no point keeping it online
            if q.qsize() == 1000:
@@ -235,15 +234,21 @@ main_switch = True
 
 if __name__ == "__main__":
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "dr:", ["debug", "run="])
+        opts, args = getopt.getopt(sys.argv[1:], "l:r:", ["log=", "run="])
     except getopt.GetoptError as err:
         # print help information and exit:
         print str(err) # will print something like "option -a not recognized"
-        print("USEAGE:\n\t -r/--run=live|dev \n\t -d/--debug for debug")
+        print("USEAGE:\n\t -r/--run=live|dev \n\t -l/--log=DEBUG|INFO|WARNING|ERROR|CRITICAL for loggin level")
         sys.exit(2)
     for o, a in opts:
-        if o in ("-d", "--debug"):
-            DEBUG = True
+        if o in ("-l", "--log"):
+            ll = {'DEBUG': logging.DEBUG,
+                    'INFO': logging.INFO,
+                    'WARNING': logging.WARNING,
+                    'ERROR': logging.ERROR,
+                    'CRITICAL': logging.CRITICAL}
+            a = a.upper()
+            if a in ll: LOG_LEVEL = ll[a]
         elif o in ("-r", "--run"):
             if a == 'live':
                 STREAM_SERVER='216.18.184.22:1935'
@@ -255,7 +260,7 @@ if __name__ == "__main__":
                 FLASH_PORT=10843
         else:
             assert False, "unhandled option"
-    logging.getLogger().setLevel(logging.DEBUG if DEBUG else logging.INFO)
+    logging.getLogger().setLevel(LOG_LEVEL)
     
     t1 = Thread(target=event_producer, args=(fd, q))
     t1.daemon = True
