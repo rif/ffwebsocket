@@ -145,7 +145,7 @@ def event_producer(fd, q):
             q.put(event)
 
 '''repetitively cleans all file from the specified path older than specified interval'''
-def file_cleanup(path, interval):
+def file_cleanup(path, interval, q):
     while main_switch:
         try: #this loop must never stop
            now = time.time()
@@ -155,18 +155,11 @@ def file_cleanup(path, interval):
                if os.stat(f).st_mtime < now - interval:
                    os.remove(f)
                    count += 1
-           sess_count = 0
-#           for sessid, socket in server.sockets.iteritems():
-#              if not socket.connected:
-#                   socket.kill(detach=True)
-#                   sess_count += 1
            logging.debug("Active models: %d" % len(stream_dumper.processes))
            logging.debug("cleanned: %d files" % count)
-           logging.debug("cleanned: %d sessions" % sess_count)
            # if queue is full then shutdown (hope some monitoring process will restart it)
            # no point keeping it online
-           if q.qsize() == 1000:
-               exit_cleanup()
+           if q.qsize() == 1000: exit_cleanup()
            time.sleep(interval)
         except Exception as e: print "EXCEPTION IN CLEAN LOOP: %s" % e
 
@@ -259,7 +252,7 @@ if __name__ == "__main__":
     t2 = Thread(target=send_img)
     t2.daemon = True
     t2.start()
-    t3 = Thread(target=file_cleanup, args=(PIC_PATH, CLEAN_INTERVAL))
+    t3 = Thread(target=file_cleanup, args=(PIC_PATH, CLEAN_INTERVAL, q))
     t3.daemon = True
     t3.start()
 
