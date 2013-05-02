@@ -140,7 +140,7 @@ def send_img():
                       ws.emit('img', base64.encodestring(img))
                       ws.fps_counter -= 1
         except Exception as e:
-              logging.error("error emitting image: %s" % e.message)
+              logging.error("error OOOO emitting image: %s" % e.message)
 
 def event_producer(fd, q):
     while main_switch:
@@ -163,7 +163,7 @@ def file_cleanup(path, interval, q):
            logging.debug("cleanned: %d files" % count)
            # if queue is full then shutdown (hope some monitoring process will restart it)
            # no point keeping it online
-           if q.qsize() == 1000: exit_cleanup()
+           if q.qsize() > 999: os.system('kill %d' % os.getpid())
            time.sleep(interval)
         except Exception as e: print "EXCEPTION IN CLEAN LOOP: %s" % e
 
