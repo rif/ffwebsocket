@@ -127,7 +127,7 @@ def send_img():
         event = q.get()
         img = None
         with sem:
-            logging.info("connections: %s, event:%s" %(web_sockets, event.name))
+            logging.debug("connections: %s, event:%s" %(web_sockets, event.name))
             for ws in web_sockets:
                # do not send more images to the queue to prevent memory inflation
                if len(ws.session.send_queue) > 50: continue
@@ -135,7 +135,10 @@ def send_img():
                   if img == None:
                         with open(PIC_PATH + event.name, 'rb') as f:
                              img = f.read()          
-                  ws.emit('img', base64.encodestring(img))
+                  try:
+                      ws.emit('img', base64.encodestring(img))
+                  except Exception as e:
+                      logging.error("error emitting image: %s" % e.message)
                   ws.fps_counter -= 1
 
 def event_producer(fd, q):
