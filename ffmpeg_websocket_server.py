@@ -281,7 +281,7 @@ class RouterConnection(SocketConnection):
     __endpoints__ = {'/vid': ImgConnection}
 
     def on_open(self, info):
-        logging.info('Router', repr(info)
+        logging.info('Router', repr(info))
 
 # Create tornadio router
 ImgRouter = TornadioRouter(RouterConnection)
