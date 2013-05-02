@@ -121,11 +121,6 @@ class ImgConnection(SocketConnection):
         while self.loop_running:
             fps_control(self)
             time.sleep(1)
-    
-    def send(self, msg):
-        if self.fps_counter > 0:
-            self.emit('img', base64.encodestring(msg))
-            self.fps_counter -= 1
 
 def send_img():
      while main_switch:
@@ -134,11 +129,12 @@ def send_img():
         with sem:
             logging.debug("connections: %s, event:%s" %(web_sockets, event.name))
             for ws in web_sockets:
-               if ws.model and event.name.lower().startswith(ws.model.lower() + "_img"):
+               if ws.model and event.name.lower().startswith(ws.model.lower() + "_img") and ws.fps_counter > 0:
                   if img == None:
                         with open(PIC_PATH + event.name, 'rb') as f:
                              img = f.read()          
-                  ws.send(img)
+                  ws.emit('img', base64.encodestring(msg))
+                  ws.fps_counter -= 1
 
 def event_producer(fd, q):
     while main_switch:
