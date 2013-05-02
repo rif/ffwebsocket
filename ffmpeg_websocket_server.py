@@ -47,6 +47,14 @@ FNULL = open('/dev/null', 'w')
 NAMESPACE='/vid'
 ROOT = os.path.normpath(os.path.dirname(__file__))
 
+sem = threading.Lock()
+web_sockets = []
+q = Queue(1000)
+fd = inotify.init()
+inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
+stream_dumper = StreamDumper()
+main_switch = True
+
 class StreamDumper(object):
     def __init__(self):
         self.processes = {}
@@ -179,6 +187,7 @@ def exit_cleanup(signumi=None, frame=None):
     try:
         os.remove(PID_FILE)
     except: pass
+    global main_switch
     main_switch = False
     for model in stream_dumper.processes:
         try:
@@ -226,14 +235,6 @@ application = web.Application(
     flash_policy_file = os.path.join(ROOT, 'flashpolicy.xml'),
     socket_io_port = PORT
 )
-
-sem = threading.Lock()
-web_sockets = []
-q = Queue(1000)
-fd = inotify.init()
-inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
-stream_dumper = StreamDumper()
-main_switch = True
 
 if __name__ == "__main__":
     try:
