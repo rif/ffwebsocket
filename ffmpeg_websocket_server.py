@@ -128,7 +128,7 @@ class ImgConnection(SocketConnection):
             self.fps_counter -= 1
 
 def send_img():
-     while True:
+     while main_switch:
          event = q.get()
 	 img = None
          with sem:
@@ -141,14 +141,14 @@ def send_img():
                   ws.send(img)
 
 def event_producer(fd, q):
-    while True:
+    while main_switch:
         events = inotify.get_events(fd)
         for event in events:           
             q.put(event)
 
 '''repetitively cleans all file from the specified path older than specified interval'''
 def file_cleanup(path, interval):
-    while True:
+    while main_switch:
         try: #this loop must never stop
            now = time.time()
            count = 0
@@ -179,6 +179,7 @@ def exit_cleanup(signumi=None, frame=None):
     try:
         os.remove(PID_FILE)
     except: pass
+    main_switch = False
     for model in stream_dumper.processes:
         try:
            p = stream_dumper.processes[model]
@@ -216,6 +217,7 @@ q = Queue(1000)
 fd = inotify.init()
 inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
 stream_dumper = StreamDumper()
+main_switch = True
 t1 = Thread(target=event_producer, args=(fd, q))
 t1.daemon = True
 t1.start()
