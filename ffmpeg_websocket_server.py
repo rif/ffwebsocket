@@ -129,9 +129,9 @@ class ImgConnection(SocketConnection):
 
 def send_img():
      while main_switch:
-         event = q.get()
-	 img = None
-         with sem:
+        event = q.get()
+        img = None
+        with sem:
             logging.debug("connections: %s, event:%s" %(web_sockets, event.name))
             for ws in web_sockets:
                if ws.model and event.name.lower().startswith(ws.model.lower() + "_img"):
@@ -175,7 +175,7 @@ def file_cleanup(path, interval):
 
 """kill all ffmpeg before exit"""    
 def exit_cleanup(signumi=None, frame=None):
-    logging.debug("killing all ffmpeg processes before exit...")
+    logging.info("killing all ffmpeg processes before exit...")
     try:
         os.remove(PID_FILE)
     except: pass
@@ -188,56 +188,6 @@ def exit_cleanup(signumi=None, frame=None):
                p.wait()
         except: pass
     sys.exit()
-
-try:
-    opts, args = getopt.getopt(sys.argv[1:], "dr:", ["debug", "run="])
-except getopt.GetoptError as err:
-    # print help information and exit:
-    print str(err) # will print something like "option -a not recognized"
-    print("USEAGE:\n\t -r/--run=live|dev \n\t -d/--debug for debug")
-    sys.exit(2)
-for o, a in opts:
-    if o in ("-d", "--debug"):
-        DEBUG = True
-    elif o in ("-r", "--run"):
-        if a == 'live':
-            STREAM_SERVER='216.18.184.22:1935'
-            STREAM_USER='UserEdge'
-            PIC_PATH = '/srv/LIVE_model_imgs_ramfs/'
-            ONLINE_MODELS_URL='http://www.seeme.com/onlinemodels'
-            PID_FILE='/tmp/LIVE_ffmpeg_websocket_server.pid'
-            PORT=8023
-            FLASH_PORT=10843
-    else:
-        assert False, "unhandled option"
-
-sem = threading.Lock()
-web_sockets = []
-q = Queue(1000)
-fd = inotify.init()
-inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
-stream_dumper = StreamDumper()
-main_switch = True
-Thread(target=event_producer, args=(fd, q)).start()
-Thread(target=send_img).start()
-Thread(target=file_cleanup, args=(PIC_PATH, CLEAN_INTERVAL)).start()
-
-signal.signal(signal.SIGTERM, exit_cleanup)
-signal.signal(signal.SIGINT , exit_cleanup) 
-signal.signal(signal.SIGQUIT, exit_cleanup)
-atexit.register(exit_cleanup)
-
-logging.info("writing pid file: %s" % PID_FILE)
-with open(PID_FILE, 'w') as f:
-    f.write(str(os.getpid()))
-
-# start ffmpeg processes for online models
-r = requests.get(ONLINE_MODELS_URL)
-if r.status_code == 200:
-    logging.info("starting initial ffmpeg processes for: %s" % r.content)
-    online_model_list = json.loads(r.content)
-    for model in online_model_list:
-	stream_dumper.start_dump(model)
 
 class StatsHandler(web.RequestHandler):
     def get(self):
@@ -277,8 +227,59 @@ application = web.Application(
     socket_io_port = PORT
 )
 
+sem = threading.Lock()
+web_sockets = []
+q = Queue(1000)
+fd = inotify.init()
+inotify.add_watch(fd, PIC_PATH, inotify.IN_CREATE)
+stream_dumper = StreamDumper()
+main_switch = True
+
 if __name__ == "__main__":
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], "dr:", ["debug", "run="])
+    except getopt.GetoptError as err:
+        # print help information and exit:
+        print str(err) # will print something like "option -a not recognized"
+        print("USEAGE:\n\t -r/--run=live|dev \n\t -d/--debug for debug")
+        sys.exit(2)
+    for o, a in opts:
+        if o in ("-d", "--debug"):
+            DEBUG = True
+        elif o in ("-r", "--run"):
+            if a == 'live':
+                STREAM_SERVER='216.18.184.22:1935'
+                STREAM_USER='UserEdge'
+                PIC_PATH = '/srv/LIVE_model_imgs_ramfs/'
+                ONLINE_MODELS_URL='http://www.seeme.com/onlinemodels'
+                PID_FILE='/tmp/LIVE_ffmpeg_websocket_server.pid'
+                PORT=8023
+                FLASH_PORT=10843
+        else:
+            assert False, "unhandled option"
     logging.getLogger().setLevel(logging.DEBUG if DEBUG else logging.INFO)
+    
+    Thread(target=event_producer, args=(fd, q)).start()
+    Thread(target=send_img).start()
+    Thread(target=file_cleanup, args=(PIC_PATH, CLEAN_INTERVAL)).start()
+
+    signal.signal(signal.SIGTERM, exit_cleanup)
+    signal.signal(signal.SIGINT , exit_cleanup) 
+    signal.signal(signal.SIGQUIT, exit_cleanup)
+    atexit.register(exit_cleanup)
+
+    logging.info("writing pid file: %s" % PID_FILE)
+    with open(PID_FILE, 'w') as f:
+        f.write(str(os.getpid()))
+
+    # start ffmpeg processes for online models
+    r = requests.get(ONLINE_MODELS_URL)
+    if r.status_code == 200:
+        logging.info("starting initial ffmpeg processes for: %s" % r.content)
+        online_model_list = json.loads(r.content)
+        for model in online_model_list:
+	    stream_dumper.start_dump(model)
+    
     # Create and start tornadio server
     SocketServer(application)
 
