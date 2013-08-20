@@ -1,4 +1,4 @@
-a = '''
+feed = '''
 <Feed feed{stream_id}.ffm>
 File /tmp/feed{stream_id}.ffm
 FileMaxSize 100K
@@ -17,5 +17,5 @@ NoVideo
 </Stream>'''
 
 
-for i in range(100):
-    print a.format(stream_id=i)
+for i in range(105):
+    print feed.format(stream_id=i)

@@ -46,7 +46,8 @@ CLEAN_INTERVAL = 5
 FNULL = open('/dev/null', 'w')
 NAMESPACE='/vid'
 ROOT = os.path.normpath(os.path.dirname(__file__))
-MAX_FEEDS=100
+MIN_FEED_ID=100
+MAX_FEED_ID=105
 
 # manages the ffserver feeds using a map of feeds ids and model name
 # {49:'Beatrix''} means that feed 49 is used by the model Beatrix
@@ -56,7 +57,8 @@ class FeedAlocator(object):
         self.feeds = {}
         self.sync = threading.Lock()
         with self.sync:
-            for i in range(MAX_FEEDS):
+            # we need the range limits to avoid clash between debug and live
+            for i in xrange(MIN_FEED_ID, MAX_FEED_ID): 
                 self.feeds[i] = ''
 
     def use_feed(self, model):
@@ -286,6 +288,8 @@ if __name__ == "__main__":
                 PID_FILE='/tmp/LIVE_ffmpeg_websocket_server.pid'
                 PORT=8023
                 FLASH_PORT=10843
+                MIN_FEED_ID = 0
+                MAX_FEED_ID = 100
         else:
             assert False, "unhandled option"
     logging.getLogger().setLevel(LOG_LEVEL)
