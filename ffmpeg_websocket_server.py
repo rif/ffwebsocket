@@ -74,17 +74,19 @@ class FeedAlocator(object):
 class StreamDumper(object):
     def __init__(self):
         self.processes = {}
+        self.stream_id = feed_alocator.use_feed()
 
     def start_dump(self, model, wait=0):
         if model in self.processes:
 	     if self.processes[model].poll() == None: # if ffmpeg process is running than do not start
                  logging.debug("ignoring...")
                  return
-        command = ['/usr/local/bin/ffmpeg', '-analyzeduration', '0', '-tune', 'zerolatency',
-             '-shortest', '-xerror', '-indexmem', '1000', '-rtbufsize', '1000', '-max_alloc', '2000000',
+        command = ['/home/web1/ffmpeg_websocket_server/ffmpeg', '-analyzeduration', '0',
+             '-xerror', '-indexmem', '1000', '-rtbufsize', '1000',
              '-i', 'rtmp://%s/%s/%s/%s_%s live=1' % (STREAM_SERVER, STREAM_USER, model, model, model),
              '-an', '-r', str(MAX_FPS), '-s', JPEG_SIZE, '-threads', '1', '-q:v', str(JPEG_QUALITY),
-              model + '_img%d.jpg']
+             model + '_img%d.jpg'
+             'http://localhost:9099/feed%d.ffm' % self.stream_id]
 	logging.debug(" ".join(command))
 	time.sleep(wait) # wait a while for stream to start
         p = Popen(command, cwd=PIC_PATH, stdout=FNULL, stderr=FNULL, close_fds=True)
@@ -99,6 +101,7 @@ class StreamDumper(object):
                      p.wait()
             finally:
                 del self.processes[model]
+                feed_alocator.release_feed()
 
 class ImgConnection(SocketConnection):
     def on_open(self, request):
@@ -125,6 +128,7 @@ class ImgConnection(SocketConnection):
         logging.debug("JOIN: %s" % model)
         self.model = model
         stream_dumper.start_dump(self.model)
+        self.emit('feed_id', stream_dumper.feed_id)
     
     @event
     def heartbeat(self, fps):
@@ -238,6 +242,7 @@ sem = threading.Lock()
 web_sockets = []
 q = Queue(1000)
 fd = inotify.init()
+feed_alocator = FeedAlocator()
 stream_dumper = StreamDumper()
 main_switch = True
 
