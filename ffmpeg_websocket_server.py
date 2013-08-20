@@ -61,7 +61,7 @@ class FeedAlocator(object):
 
     def use_feed(self):
         with self.sync:
-            for feed_id, free in range(self.feeds):
+            for feed_id, free in self.feeds:
                 if free:
                     self.feeds[feed_id] = False # mark occupied
                     return feed_id
