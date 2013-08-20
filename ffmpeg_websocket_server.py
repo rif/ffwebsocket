@@ -62,16 +62,20 @@ class FeedAlocator(object):
                 self.feeds[i] = ''
 
     def use_feed(self, model):
+	feed_id = self.get_id_for_model(model)
+	if feed_id != -1:
+	    return feed_id
         with self.sync:
-            logging.debug(self.feeds)
             for feed_id, used_by_model in self.feeds.iteritems():
                 if not used_by_model:
                     self.feeds[feed_id] = model # mark occupied
+		    logging.debug('USE feed id: %s %s' %( model, self.feeds))
                     return feed_id
         return -1
 
     def get_id_for_model(self, model):
         with self.sync:
+	    logging.debug('GET feed id: %s %s'%(model, self.feeds))
             for feed_id, used_by_model in self.feeds.iteritems():
                 if used_by_model == model:
                     return feed_id
@@ -89,6 +93,7 @@ class StreamDumper(object):
         self.processes = {}
 
     def start_dump(self, model, wait=0):
+	logging.debug('Model: %s, processes: %s, present: %s' % (model, self.processes, model in self.processes))
         if model in self.processes:
 	     if self.processes[model].poll() == None: # if ffmpeg process is running than do not start
                  logging.debug("ignoring...")
