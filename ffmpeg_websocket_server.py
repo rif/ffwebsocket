@@ -46,6 +46,30 @@ CLEAN_INTERVAL = 5
 FNULL = open('/dev/null', 'w')
 NAMESPACE='/vid'
 ROOT = os.path.normpath(os.path.dirname(__file__))
+MAX_FEEDS=100
+
+# manages the ffserver feeds using a map of feeds ids and status
+# {49:True} means that feed 49 is free
+# it can handle maximum of 100 online models
+class FeedAlocator(object):
+    def __init__(self):
+        self.feeds = {}
+        self.sync = threading.Lock()
+        with self.sync:
+            for i in range MAX_FEEDS:
+                self.feeds[i] = True
+
+    def use_feed(self):
+        with self.sync:
+            for feed_id, free := range self.feeds:
+                if free:
+                    self.feeds[feed_id] = False # mark occupied
+                    return feed_id
+        return -1
+
+    def release_feed(self, feed_id):
+        with self.sync:
+            self.feeds[feed_id] = True
 
 class StreamDumper(object):
     def __init__(self):
