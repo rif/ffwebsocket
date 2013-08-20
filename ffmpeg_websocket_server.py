@@ -35,6 +35,12 @@ PID_FILE='/tmp/DEV_ffmpeg_websocket_server.pid'
 PORT=8022
 FLASH_PORT=10842
 
+# need these because we need to diferentiate the feeds used in devel
+# the devel feed ids start from 100 to 105
+# prod are from 0 to 100
+START_FEED_ID = 100
+END_FEED_ID = 105
+
 # global setting
 MAX_FPS = 15
 MIN_FPS = 1
@@ -46,47 +52,32 @@ CLEAN_INTERVAL = 5
 FNULL = open('/dev/null', 'w')
 NAMESPACE='/vid'
 ROOT = os.path.normpath(os.path.dirname(__file__))
-MIN_FEED_ID=100
-MAX_FEED_ID=105
 
-# manages the ffserver feeds using a map of feeds ids and model name
-# {49:'Beatrix''} means that feed 49 is used by the model Beatrix
-# it can handle maximum of 100 online models
+# manages the ffserver feeds using a model list
 class FeedAlocator(object):
     def __init__(self):
-        self.feeds = {}
+        self.feeds = []
         self.sync = threading.Lock()
-        with self.sync:
-            # we need the range limits to avoid clash between debug and live
-            for i in xrange(MIN_FEED_ID, MAX_FEED_ID): 
-                self.feeds[i] = ''
 
     def use_feed(self, model):
-	feed_id = self.get_id_for_model(model)
-	if feed_id != -1:
-	    return feed_id
-        with self.sync:
-            for feed_id, used_by_model in self.feeds.iteritems():
-                if not used_by_model:
-                    self.feeds[feed_id] = model # mark occupied
-		    logging.debug('USE feed id: %s %s' %( model, self.feeds))
-                    return feed_id
+        if model in self.feeds:
+            return self.feeds.index(model)
+        if START_FEED_ID + len(self.feeds) < END_FEED_ID:
+            self.feeds.append(model)
+            return START_FEED_ID + self.feeds.index(model)
         return -1
 
     def get_id_for_model(self, model):
         with self.sync:
 	    logging.debug('GET feed id: %s %s'%(model, self.feeds))
-            for feed_id, used_by_model in self.feeds.iteritems():
-                if used_by_model == model:
-                    return feed_id
+            if model in self.feeds:
+                return START_FEED_ID + self.feeds.index(model)
         return -1
 
     def release_feed(self, model):
-        feed_id = self.get_id_for_model(model)
-        if feed_id == -1:
-            return
         with self.sync:
-            self.feeds[feed_id] = ''
+            if model in self.feeds:
+                self.feeds.remove(model)
 
 class StreamDumper(object):
     def __init__(self):
@@ -294,8 +285,8 @@ if __name__ == "__main__":
                 PID_FILE='/tmp/LIVE_ffmpeg_websocket_server.pid'
                 PORT=8023
                 FLASH_PORT=10843
-                MIN_FEED_ID = 0
-                MAX_FEED_ID = 100
+                START_FEED_ID = 0
+                END_FEED_ID = 100
         else:
             assert False, "unhandled option"
     logging.getLogger().setLevel(LOG_LEVEL)
