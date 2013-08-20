@@ -56,12 +56,12 @@ class FeedAlocator(object):
         self.feeds = {}
         self.sync = threading.Lock()
         with self.sync:
-            for i in range MAX_FEEDS:
+            for i in range(MAX_FEEDS):
                 self.feeds[i] = True
 
     def use_feed(self):
         with self.sync:
-            for feed_id, free := range self.feeds:
+            for feed_id, free in range(self.feeds):
                 if free:
                     self.feeds[feed_id] = False # mark occupied
                     return feed_id
