@@ -57,7 +57,7 @@ class FeedAlocator(object):
         self.sync = threading.Lock()
         with self.sync:
             for i in range(MAX_FEEDS):
-                self.feeds[i] = True
+                self.feeds[i] = ''
 
     def use_feed(self, model):
         with self.sync:
@@ -93,7 +93,7 @@ class StreamDumper(object):
                  return
         command = ['/home/web1/ffmpeg_websocket_server/ffmpeg', '-analyzeduration', '0',
              '-xerror', '-indexmem', '1000', '-rtbufsize', '1000',
-             '-i', 'rtmp://%s/%s/%s/%s_%s live=1' % (STREAM_SERVER, STREAM_USER, model, model, model),
+             '-i', 'rtmp://%s/%s/%s/%s_%s' % (STREAM_SERVER, STREAM_USER, model, model, model),
              '-an', '-r', str(MAX_FPS), '-s', JPEG_SIZE, '-threads', '1', '-q:v', str(JPEG_QUALITY),
              model + '_img%d.jpg']
         if stream_id != -1: # there are unused feeds
@@ -136,11 +136,11 @@ class ImgConnection(SocketConnection):
 
     @event
     def join(self, model):
-        logging.debug("JOIN: %s" % model)
         self.model = model
         stream_dumper.start_dump(self.model)
         feed_id = feed_alocator.get_id_for_model(self.model)
-        if feed_id != -1:
+        logging.debug("JOIN: %s, feed_id: %d" % (model, feed_id))
+	if feed_id != -1:
             self.emit('feed_id', feed_id)
     
     @event

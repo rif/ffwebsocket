@@ -1,7 +1,7 @@
 a = '''
 <Feed feed{stream_id}.ffm>
 File /tmp/feed{stream_id}.ffm
-FileMaxSize 1024M
+FileMaxSize 100K
 ACL allow 127.0.0.1
 </Feed>
 
