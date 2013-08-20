@@ -48,8 +48,8 @@ NAMESPACE='/vid'
 ROOT = os.path.normpath(os.path.dirname(__file__))
 MAX_FEEDS=100
 
-# manages the ffserver feeds using a map of feeds ids and status
-# {49:True} means that feed 49 is free
+# manages the ffserver feeds using a map of feeds ids and model name
+# {49:'Beatrix''} means that feed 49 is used by the model Beatrix
 # it can handle maximum of 100 online models
 class FeedAlocator(object):
     def __init__(self):
@@ -59,24 +59,34 @@ class FeedAlocator(object):
             for i in range(MAX_FEEDS):
                 self.feeds[i] = True
 
-    def use_feed(self):
+    def use_feed(self, model):
         with self.sync:
-            for feed_id, free in self.feeds.iteritems():
-                if free:
-                    self.feeds[feed_id] = False # mark occupied
+            for feed_id, used_by_model in self.feeds.iteritems():
+                if !used_by_model:
+                    self.feeds[feed_id] = model # mark occupied
                     return feed_id
         return -1
 
-    def release_feed(self, feed_id):
+    def get_id_for_model(self, model):
         with self.sync:
-            self.feeds[feed_id] = True
+            for feed_id, used_by_model in self.feeds.iteritems():
+                if used_by_model == model:
+                    return feed_id
+        return -1
+
+    def release_feed(self, model):
+        feed_id = self.get_id_for_model(model)
+        if feed_id == -1:
+            return
+        with self.sync:
+            self.feeds[feed_id] = ''
 
 class StreamDumper(object):
     def __init__(self):
         self.processes = {}
-        self.stream_id = feed_alocator.use_feed()
 
     def start_dump(self, model, wait=0):
+        stream_id = feed_alocator.use_feed(model)
         if model in self.processes:
 	     if self.processes[model].poll() == None: # if ffmpeg process is running than do not start
                  logging.debug("ignoring...")
@@ -85,8 +95,9 @@ class StreamDumper(object):
              '-xerror', '-indexmem', '1000', '-rtbufsize', '1000',
              '-i', 'rtmp://%s/%s/%s/%s_%s live=1' % (STREAM_SERVER, STREAM_USER, model, model, model),
              '-an', '-r', str(MAX_FPS), '-s', JPEG_SIZE, '-threads', '1', '-q:v', str(JPEG_QUALITY),
-             model + '_img%d.jpg'
-             'http://localhost:9099/feed%d.ffm' % self.stream_id]
+             model + '_img%d.jpg']
+        if stream_id != -1: # there are unused feeds
+            command.append('http://localhost:9099/feed%d.ffm' % stream_id)
 	logging.debug(" ".join(command))
 	time.sleep(wait) # wait a while for stream to start
         p = Popen(command, cwd=PIC_PATH, stdout=FNULL, stderr=FNULL, close_fds=True)
@@ -101,7 +112,7 @@ class StreamDumper(object):
                      p.wait()
             finally:
                 del self.processes[model]
-                feed_alocator.release_feed()
+        feed_alocator.release_feed(model)
 
 class ImgConnection(SocketConnection):
     def on_open(self, request):
@@ -128,7 +139,9 @@ class ImgConnection(SocketConnection):
         logging.debug("JOIN: %s" % model)
         self.model = model
         stream_dumper.start_dump(self.model)
-        self.emit('feed_id', stream_dumper.feed_id)
+        feed_id = feed_alocator.get_id_for_model(self.model)
+        if feed_id != -1:
+            self.emit('feed_id', feed_id)
     
     @event
     def heartbeat(self, fps):
