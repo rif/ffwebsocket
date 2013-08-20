@@ -63,6 +63,7 @@ class FeedAlocator(object):
 
     def use_feed(self, model):
         with self.sync:
+            logging.debug(self.feeds)
             for feed_id, used_by_model in self.feeds.iteritems():
                 if not used_by_model:
                     self.feeds[feed_id] = model # mark occupied
@@ -88,11 +89,11 @@ class StreamDumper(object):
         self.processes = {}
 
     def start_dump(self, model, wait=0):
-        stream_id = feed_alocator.use_feed(model)
         if model in self.processes:
 	     if self.processes[model].poll() == None: # if ffmpeg process is running than do not start
                  logging.debug("ignoring...")
                  return
+        stream_id = feed_alocator.use_feed(model)
         command = ['/home/web1/ffmpeg_websocket_server/ffmpeg', '-analyzeduration', '0',
              '-xerror', '-indexmem', '1000', '-rtbufsize', '1000',
              '-i', 'rtmp://%s/%s/%s/%s_%s' % (STREAM_SERVER, STREAM_USER, model, model, model),
