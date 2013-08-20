@@ -62,7 +62,7 @@ class FeedAlocator(object):
     def use_feed(self, model):
         with self.sync:
             for feed_id, used_by_model in self.feeds.iteritems():
-                if !used_by_model:
+                if not used_by_model:
                     self.feeds[feed_id] = model # mark occupied
                     return feed_id
         return -1
