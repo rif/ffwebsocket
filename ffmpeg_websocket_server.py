@@ -91,15 +91,15 @@ class StreamDumper(object):
                  logging.debug("ignoring...")
                  return
         stream_id = feed_alocator.use_feed(model)
-	logging.debug('STREAM_ID: %s' % stream_id)
-        command = ['/home/web1/ffmpeg_websocket_server/ffmpeg', '-analyzeduration', '0',
+	logging.info('STREAM_ID: %s' % stream_id)
+        command = ['/home/web1/ffmpeg_websocket_server/ffmpeg', '-analyzeduration', '1',
              '-xerror', '-indexmem', '1000', '-rtbufsize', '1000',
              '-i', 'rtmp://%s/%s/%s/%s_%s' % (STREAM_SERVER, STREAM_USER, model, model, model),
              '-an', '-r', str(MAX_FPS), '-s', JPEG_SIZE, '-threads', '1', '-q:v', str(JPEG_QUALITY),
              model + '_img%d.jpg']
         if stream_id != -1: # there are unused feeds
             command.append('http://localhost:9099/feed%d.ffm' % stream_id)
-	logging.debug(" ".join(command))
+	logging.info(" ".join(command))
 	time.sleep(wait) # wait a while for stream to start
         p = Popen(command, cwd=PIC_PATH, stdout=FNULL, stderr=FNULL, close_fds=True)
         self.processes[model] = p
