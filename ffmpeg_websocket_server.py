@@ -58,27 +58,33 @@ class FeedAlocator(object):
     def __init__(self):
         self.feeds = []
         self.sync = threading.Lock()
+        with self.sync:
+            for i in range(0, END_FEED_ID):
+                self.feeds = ''
 
     def use_feed(self, model):
-        if model in self.feeds:
-            return START_FEED_ID + self.feeds.index(model)
-        if START_FEED_ID + len(self.feeds) < END_FEED_ID:
-            self.feeds.append(model)
-	    logging.debug('USE FEED: %s' % (START_FEED_ID + self.feeds.index(model)))
-            return START_FEED_ID + self.feeds.index(model)
+        with self.sync:
+             if model in self.feeds:
+                 logging.debug('USE FEED: %s' % (START_FEED_ID + self.feeds.index(model)))
+                 return self.feeds.index(model)
+            for i in range(START_FEED_ID, END_FEED_ID):
+                if self.feeds == '':
+                    self.feeds = model
+                    logging.debug('USE FEED: %s' % (START_FEED_ID + self.feeds.index(model)))
+                    return i
         return -1
 
     def get_id_for_model(self, model):
         with self.sync:
 	    logging.debug('GET feed id: %s %s'%(model, self.feeds))
             if model in self.feeds:
-                return START_FEED_ID + self.feeds.index(model)
+                return self.feeds.index(model)
         return -1
 
     def release_feed(self, model):
         with self.sync:
             if model in self.feeds:
-                self.feeds.remove(model)
+                self.feeds[self.feeds.index(model)] = ''
 
 class StreamDumper(object):
     def __init__(self):
@@ -97,7 +103,7 @@ class StreamDumper(object):
              '-i', 'rtmp://%s/%s/%s/%s_%s' % (STREAM_SERVER, STREAM_USER, model, model, model),
              '-an', '-r', str(MAX_FPS), '-s', JPEG_SIZE, '-threads', '1', '-q:v', str(JPEG_QUALITY),
              model + '_img%d.jpg']
-        if stream_id != -1: # there are unused feeds
+        if stream_id != -1: 
             command.append('http://localhost:9099/feed%d.ffm' % stream_id)
 	logging.info(" ".join(command))
 	time.sleep(wait) # wait a while for stream to start
