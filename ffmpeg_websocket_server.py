@@ -61,9 +61,10 @@ class FeedAlocator(object):
 
     def use_feed(self, model):
         if model in self.feeds:
-            return self.feeds.index(model)
+            return START_FEED_ID + self.feeds.index(model)
         if START_FEED_ID + len(self.feeds) < END_FEED_ID:
             self.feeds.append(model)
+	    logging.debug('USE FEED: %s' % (START_FEED_ID + self.feeds.index(model)))
             return START_FEED_ID + self.feeds.index(model)
         return -1
 
@@ -90,6 +91,7 @@ class StreamDumper(object):
                  logging.debug("ignoring...")
                  return
         stream_id = feed_alocator.use_feed(model)
+	logging.debug('STREAM_ID: %s' % stream_id)
         command = ['/home/web1/ffmpeg_websocket_server/ffmpeg', '-analyzeduration', '0',
              '-xerror', '-indexmem', '1000', '-rtbufsize', '1000',
              '-i', 'rtmp://%s/%s/%s/%s_%s' % (STREAM_SERVER, STREAM_USER, model, model, model),
