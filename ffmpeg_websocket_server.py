@@ -60,7 +60,7 @@ class FeedAlocator(object):
         self.sync = threading.Lock()
         with self.sync:
             for i in xrange(0, END_FEED_ID):
-                self.feeds = ''
+                self.feeds[i] = ''
 
     def use_feed(self, model):
         with self.sync:
