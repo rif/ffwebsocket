@@ -67,11 +67,11 @@ class FeedAlocator(object):
              if model in self.feeds:
                  logging.debug('USE FEED: %s' % (START_FEED_ID + self.feeds.index(model)))
                  return self.feeds.index(model)
-            for i in range(START_FEED_ID, END_FEED_ID):
-                if self.feeds == '':
-                    self.feeds = model
-                    logging.debug('USE FEED: %s' % (START_FEED_ID + self.feeds.index(model)))
-                    return i
+             for i in range(START_FEED_ID, END_FEED_ID):
+                 if self.feeds == '':
+                     self.feeds = model
+                     logging.debug('USE FEED: %s' % (START_FEED_ID + self.feeds.index(model)))
+                     return i
         return -1
 
     def get_id_for_model(self, model):
