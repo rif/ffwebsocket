@@ -59,18 +59,18 @@ class FeedAlocator(object):
         self.feeds = []
         self.sync = threading.Lock()
         with self.sync:
-            for i in range(0, END_FEED_ID):
+            for i in xrange(0, END_FEED_ID):
                 self.feeds = ''
 
     def use_feed(self, model):
         with self.sync:
              if model in self.feeds:
-                 logging.debug('USE FEED: %s' % (START_FEED_ID + self.feeds.index(model)))
+                 logging.debug('USE FEED: %s' % self.feeds.index(model))
                  return self.feeds.index(model)
-             for i in range(START_FEED_ID, END_FEED_ID):
-                 if self.feeds == '':
-                     self.feeds = model
-                     logging.debug('USE FEED: %s' % (START_FEED_ID + self.feeds.index(model)))
+             for i in xrange(START_FEED_ID, END_FEED_ID):
+                 if self.feeds[i] == '':
+                     self.feeds[i] = model
+                     logging.debug('USE FEED: %s' % i)
                      return i
         return -1
 
